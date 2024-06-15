@@ -1,8 +1,9 @@
-MAIN $a $b $c $d
+MAIN $a $b $c
 OUT "Hello world!"
-STORE "1" $a
-OUT $a
-OUT $b
-OUT $c
-STORE "100" $c
-OUT $d
+STORE "Goodbye!" $a
+STORE "Hello!" $b
+OUT *$b
+OUT *$a
+STORE $a $c
+STORE "Goodbye again!" *$c
+OUT *$a

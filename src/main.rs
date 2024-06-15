@@ -153,6 +153,7 @@ fn main() {
 enum AsmVal {
     Literal(String),
     StackOffset(usize),
+    StackDeref(Box<AsmVal>),
 }
 
 fn parse_asm_val(parts: &mut VecDeque<&str>, vars: &[Var]) -> Result<AsmVal, ()> {
@@ -162,7 +163,8 @@ fn parse_asm_val(parts: &mut VecDeque<&str>, vars: &[Var]) -> Result<AsmVal, ()>
     match first_char {
         '"' => parse_literal(parts).map(AsmVal::Literal),
         '$' => parse_stack_offset(parts, vars).map(AsmVal::StackOffset),
-        _ => return Err(()),
+        '*' => parse_stack_deref(parts, vars).map(AsmVal::StackDeref),
+        _ => Err(()),
     }
 }
 
@@ -210,6 +212,14 @@ fn parse_stack_offset(parts: &mut VecDeque<&str>, vars: &[Var]) -> Result<usize,
     Ok(var.offset)
 }
 
+fn parse_stack_deref(parts: &mut VecDeque<&str>, vars: &[Var]) -> Result<Box<AsmVal>, ()> {
+    let Some(first) = parts.pop_front() else { return Err(()) };
+    let Some(("*", val)) = first.split_at_checked(1) else { return Err(()) };
+    parts.push_front(val);
+    let val = parse_asm_val(parts, vars)?;
+    Ok(Box::new(val))
+}
+
 #[derive(Debug)]
 struct List {
     uuid: Uuid,
@@ -221,6 +231,7 @@ enum ExprKind {
     Literal(String),
     ListLen(Arc<List>),
     Sub(Box<Expr>, Box<Expr>),
+    ListIndex { list: Arc<List>, index: Box<Expr> },
 }
 
 impl ExprKind {
@@ -234,6 +245,13 @@ impl ExprKind {
                     kind: ExprKind::Literal(offset.to_string()),
                 }),
             ),
+            AsmVal::StackDeref(addr) => {
+                let addr = ExprKind::from_asm(*addr, stack);
+                ExprKind::ListIndex {
+                    list: Arc::clone(stack),
+                    index: Box::new(Expr { uuid: Uuid::new_v4(), kind: addr }),
+                }
+            },
         }
     }
 }
@@ -292,6 +310,23 @@ impl Expr {
                 let mut deps = Vec::from([sub_block.to_json()]);
                 deps.extend(a_data.deps);
                 deps.extend(b_data.deps);
+
+                ExprData { val: format!(r#"[3, "{}", [7, ""]]"#, self.uuid), deps }
+            },
+            ExprKind::ListIndex { list, index } => {
+                let index_data = index.data(self.uuid);
+
+                let indexing_block = BlockJsonMaker {
+                    uuid: self.uuid,
+                    op_code: "data_itemoflist",
+                    next: None,
+                    prev: Some(parent),
+                    inputs: format!(r#""INDEX": {}"#, index_data.val),
+                    fields: format!(r#""LIST": ["{}", "{}"]"#, list.name, list.uuid),
+                };
+
+                let mut deps = Vec::from([indexing_block.to_json()]);
+                deps.extend(index_data.deps);
 
                 ExprData { val: format!(r#"[3, "{}", [7, ""]]"#, self.uuid), deps }
             },
