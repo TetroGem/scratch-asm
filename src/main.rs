@@ -607,7 +607,8 @@ fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
 }
 
 fn export(compiled: Compiled) -> Result<String, ()> {
-    let lists = [Arc::clone(&compiled.stdout), Arc::clone(&compiled.stack)];
+    let lists =
+        [Arc::clone(&compiled.stdout), Arc::clone(&compiled.stack), Arc::clone(&compiled.args)];
 
     let lists = lists.into_iter().map(|list| format!(r#""{}": ["{}", []]"#, list.uuid, list.name));
     let lists = lists.collect_vec().join(",");
