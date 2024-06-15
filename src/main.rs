@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::mem::{replace, take};
@@ -15,6 +15,7 @@ use zip_extensions::ZipWriterExtensions;
 enum Command {
     Out(AsmVal),
     Store { val: AsmVal, addr: AsmVal },
+    Call { function: String },
 }
 
 #[derive(Debug)]
@@ -26,6 +27,7 @@ struct Var {
 #[derive(Debug)]
 enum DefKind {
     Main,
+    Function { name: String },
 }
 
 #[derive(Debug)]
@@ -57,11 +59,20 @@ fn main() {
     let mut def = None;
 
     for line in input.lines() {
+        if line.is_empty() {
+            continue;
+        }
+
         let mut parts = line.split_whitespace();
 
-        let op = parts.next().unwrap().to_lowercase();
+        let op = parts.next().expect("first part should be op").to_lowercase();
         let op_def_kind = match op.as_str() {
             "main" => Some(DefKind::Main),
+            "define" => {
+                let name = parts.next().expect("function must have name");
+                assert!(name.starts_with('@'), "function names must start with @");
+                Some(DefKind::Function { name: name.into() })
+            },
             _ => None,
         };
 
@@ -95,6 +106,10 @@ fn main() {
                 let addr = parse_asm_val(&mut parts, &def.vars).expect("STORE needs addr");
                 Command::Store { val, addr }
             },
+            "call" => {
+                let function = parse_function_name(&mut parts).expect("CALL needs function");
+                Command::Call { function: function.into() }
+            },
             op => panic!("unknown op: {}", op),
         };
 
@@ -107,7 +122,7 @@ fn main() {
 
     println!("{:?}", defs);
 
-    let compiled = compile(defs);
+    let compiled = compile(defs).expect("compilation should succeed");
 
     println!("{:?}", compiled);
 
@@ -218,6 +233,14 @@ fn parse_stack_deref(parts: &mut VecDeque<&str>, vars: &[Var]) -> Result<Box<Asm
     parts.push_front(val);
     let val = parse_asm_val(parts, vars)?;
     Ok(Box::new(val))
+}
+
+fn parse_function_name<'a>(parts: &mut VecDeque<&'a str>) -> Result<&'a str, ()> {
+    let Some(name) = parts.pop_front() else { return Err(()) };
+    if !name.starts_with('@') {
+        return Err(());
+    }
+    Ok(name)
 }
 
 #[derive(Debug)]
@@ -335,12 +358,20 @@ impl Expr {
 }
 
 #[derive(Debug)]
+struct Message {
+    uuid: Uuid,
+    name: String,
+}
+
+#[derive(Debug)]
 enum Op {
-    FlagClicked,
+    OnFlag,
+    OnMessage(Arc<Message>),
     ListPush { list: Arc<List>, val: Expr },
     ListClear { list: Arc<List> },
     ListRemove { list: Arc<List>, index: Expr },
     ListSet { list: Arc<List>, index: Expr, val: Expr },
+    BroadcastSync(Arc<Message>),
 }
 
 #[derive(Debug)]
@@ -359,10 +390,16 @@ struct BlockData {
 impl Block {
     pub fn data(&self) -> BlockData {
         match &self.op {
-            Op::FlagClicked => BlockData {
+            Op::OnFlag => BlockData {
                 op_code: "event_whenflagclicked",
                 inputs: String::new(),
                 fields: String::new(),
+                deps: Vec::default(),
+            },
+            Op::OnMessage(message) => BlockData {
+                op_code: "event_whenbroadcastreceived",
+                inputs: String::new(),
+                fields: format!(r#""BROADCAST_OPTION": ["{}", "{}"]"#, message.name, message.uuid),
                 deps: Vec::default(),
             },
             Op::ListPush { list, val } => {
@@ -410,6 +447,15 @@ impl Block {
                     deps,
                 }
             },
+            Op::BroadcastSync(message) => BlockData {
+                op_code: "event_broadcastandwait",
+                inputs: format!(
+                    r#""BROADCAST_INPUT": [1, [11, "{}", "{}"]]"#,
+                    message.name, message.uuid
+                ),
+                fields: String::new(),
+                deps: Vec::default(),
+            },
         }
     }
 }
@@ -432,15 +478,33 @@ struct Compiled {
     stdout: Arc<List>,
     stack: Arc<List>,
     chains: Vec<Chain>,
+    message_name_to_message: HashMap<String, Arc<Message>>,
 }
 
-fn compile(defs: Vec<Def>) -> Compiled {
+fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
     let stdout = Arc::new(List { uuid: Uuid::new_v4(), name: "::stdout".into() });
     let stack = Arc::new(List { uuid: Uuid::new_v4(), name: "::stack".into() });
 
+    let mut message_name_to_message = HashMap::new();
+
+    // create messages for functions
+    for def in &defs {
+        match &def.kind {
+            DefKind::Main => {},
+            DefKind::Function { name } => {
+                let message = Arc::new(Message { uuid: Uuid::new_v4(), name: name.into() });
+                message_name_to_message.insert(message.name.clone(), Arc::clone(&message));
+            },
+        };
+    }
+
     let chains = defs.into_iter().map(|def| {
-        let root_op = match def.kind {
-            DefKind::Main => Op::FlagClicked,
+        let root_op = match &def.kind {
+            DefKind::Main => Op::OnFlag,
+            DefKind::Function { name } => {
+                let Some(message) = message_name_to_message.get(name) else { return Err(()) };
+                Op::OnMessage(Arc::clone(message))
+            },
         };
 
         let head = Root { block: Block { op: root_op, uuid: Uuid::new_v4() }, x: 0., y: 0. };
@@ -471,21 +535,25 @@ fn compile(defs: Vec<Def>) -> Compiled {
         }
 
         let blocks = def.body.into_iter().map(|command| match command {
-            Command::Out(msg) => Op::ListPush {
+            Command::Out(msg) => Ok(Op::ListPush {
                 list: Arc::clone(&stdout),
                 val: Expr { kind: ExprKind::from_asm(msg, &stack), uuid: Uuid::new_v4() },
-            },
-            Command::Store { val, addr } => Op::ListSet {
+            }),
+            Command::Store { val, addr } => Ok(Op::ListSet {
                 list: Arc::clone(&stack),
                 index: Expr { kind: ExprKind::from_asm(addr, &stack), uuid: Uuid::new_v4() },
                 val: Expr { kind: ExprKind::from_asm(val, &stack), uuid: Uuid::new_v4() },
+            }),
+            Command::Call { function } => {
+                let Some(message) = message_name_to_message.get(&function) else {
+                    return Err(());
+                };
+                Ok(Op::BroadcastSync(Arc::clone(message)))
             },
         });
 
-        let blocks = blocks.map(|op| Block { uuid: Uuid::new_v4(), op });
-        for block in blocks {
-            body.push(block);
-        }
+        let blocks = blocks.collect::<Result<Vec<_>, _>>()?;
+        body.extend(blocks.into_iter().map(|op| Block { uuid: Uuid::new_v4(), op }));
 
         // var dealloc
         for _var in &def.vars {
@@ -501,12 +569,12 @@ fn compile(defs: Vec<Def>) -> Compiled {
             });
         }
 
-        Chain { head, body }
+        Ok(Chain { head, body })
     });
 
-    let chains = chains.collect();
+    let chains = chains.collect::<Result<Vec<_>, _>>()?;
 
-    Compiled { stdout, stack, chains }
+    Ok(Compiled { stdout, stack, chains, message_name_to_message })
 }
 
 fn export(compiled: Compiled) -> Result<String, ()> {
@@ -588,6 +656,13 @@ fn export(compiled: Compiled) -> Result<String, ()> {
     let Ok(chains) = chains else { return Err(()) };
     let blocks = chains.into_iter().flatten().collect_vec().join(",");
 
+    let broadcasts = compiled
+        .message_name_to_message
+        .into_values()
+        .map(|message| format!(r#""{}": "{}""#, message.uuid, message.name))
+        .collect_vec()
+        .join(",");
+
     let global_stage = format!(
         r#"
         {{
@@ -595,7 +670,7 @@ fn export(compiled: Compiled) -> Result<String, ()> {
             "name": "Stage",
             "variables": {{}},
             "lists": {{{}}},
-            "broadcasts": {{}},
+            "broadcasts": {{{}}},
             "blocks": {{{}}},
             "comments": {{}},
             "currentCostume": 0,
@@ -618,7 +693,7 @@ fn export(compiled: Compiled) -> Result<String, ()> {
             "textToSpeechLanguage": null
         }}
     "#,
-        lists, blocks
+        lists, broadcasts, blocks
     );
 
     let stdout_monitor = format!(

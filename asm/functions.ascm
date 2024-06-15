@@ -1,0 +1,7 @@
+MAIN
+CALL @function
+OUT "World!"
+
+DEFINE @function $a
+STORE "Hello" $a
+OUT *$a
