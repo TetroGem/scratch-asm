@@ -1,0 +1,8 @@
+MAIN $a $b $c $d
+OUT "Hello world!"
+STORE "1" $a
+OUT $a
+OUT $b
+OUT $c
+STORE "100" $c
+OUT $d

@@ -1,0 +1,12 @@
+DEFINE @main $a $b $temp
+STORE 2 $a
+STORE 2 $b
+ADD *$a *$b $temp
+CALL @is_even *$temp
+REC $a
+OUT *$a
+
+DEFINE @is_even $a $even
+MOD *$a 2 $even
+EQ *$even 1 $even
+RET *$even
