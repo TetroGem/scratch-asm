@@ -1,0 +1,36 @@
+MAIN $iters
+OUT "Enter the number of FizzBuzz iterations to perform: "
+IN $iters
+OUT *$iters
+OUTL
+
+CALLIF "1" @fizzbuzz "1" *$iters
+
+DEFINE @fizzbuzz $num $iters $_cond
+STORE *$iters $_cond
+SUB *$_cond "1" $_cond
+GT *$num *$_cond $_cond
+SUB "1" *$_cond $_cond
+CALLIF *$_cond @_fizzbuzz_1 *$num
+
+ADD *$num "1" $num
+CALLIF *$_cond @fizzbuzz *$num *$iters
+
+DEFINE @_fizzbuzz_1 $num $_fizz $_buzz $_none
+
+MOD *$num "3" $_fizz
+EQ *$_fizz "0" $_fizz
+
+MOD *$num "5" $_buzz
+EQ *$_buzz "0" $_buzz
+
+ADD *$_fizz *$_buzz $_none
+EQ *$_none "0" $_none
+
+CALLIF *$_fizz @print "Fizz"
+CALLIF *$_buzz @print "Buzz"
+CALLIF *$_none @print *$num
+OUTL
+
+DEFINE @print $val
+OUT *$val

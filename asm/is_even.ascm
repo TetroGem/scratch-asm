@@ -1,21 +1,21 @@
 MAIN $num $num_is_even
-OUT "Input an integer:"
+OUT "Input an integer: "
 IN $num
-OUT "Is..."
 OUT *$num
-OUT "...even?"
-OUT ""
-OUT "Answer:"
+OUTL
+OUT "Is "
+OUT *$num
+OUT " even? It is "
 CALLIF "1" @is_even *$num $num_is_even
 CALLIF *$num_is_even @print_even
 SUB "1" *$num_is_even $num_is_even
 CALLIF *$num_is_even @print_odd
 
 DEFINE @print_even
-OUT "Even!"
+OUT "even!"
 
 DEFINE @print_odd
-OUT "Odd!"
+OUT "odd!"
 
 DEFINE @is_even $num $ret
 MOD *$num "2" *$ret

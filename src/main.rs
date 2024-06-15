@@ -14,6 +14,7 @@ use zip_extensions::ZipWriterExtensions;
 #[derive(Debug)]
 enum Command {
     Out(AsmVal),
+    OutL,
     In { dest: Arc<AsmVal> },
     Store { val: Arc<AsmVal>, addr: Arc<AsmVal> },
     CallIf { cond: Arc<AsmVal>, function: String, args: Vec<Arc<AsmVal>> },
@@ -110,6 +111,7 @@ fn main() {
                 let msg = parse_asm_val(&mut parts, &def.vars).expect("OUT needs message");
                 Command::Out(msg)
             },
+            "outl" => Command::OutL,
             "in" => {
                 let dest = parse_asm_val(&mut parts, &def.vars).expect("IN needs dest");
                 Command::In { dest: Arc::new(dest) }
@@ -327,6 +329,7 @@ enum LitExprKind {
     Div(Box<LitExpr>, Box<LitExpr>),
     Mod(Box<LitExpr>, Box<LitExpr>),
     Answer,
+    Join(Box<LitExpr>, Box<LitExpr>),
 }
 
 impl LitExprKind {
@@ -344,7 +347,7 @@ impl LitExprKind {
                 }),
             ),
             AsmVal::StackDeref(addr) => {
-                let addr = LitExprKind::from_asm(&addr, stack);
+                let addr = LitExprKind::from_asm(addr, stack);
                 LitExprKind::ListIndex {
                     list: Arc::clone(stack),
                     index: Box::new(LitExpr { uuid: Uuid::new_v4(), kind: addr }),
@@ -655,6 +658,31 @@ impl LitExpr {
                     val: format!(r#"[3, "{}", [7, ""]]"#, self.uuid),
                     deps: Vec::from([block.to_json()]),
                 }
+            },
+            LitExprKind::Join(left, right) => {
+                let left_data = left.data(self.uuid);
+                let right_data = right.data(self.uuid);
+
+                let block = BlockJsonMaker {
+                    uuid: self.uuid,
+                    op_code: "operator_join",
+                    next: None,
+                    prev: Some(parent),
+                    inputs: format!(
+                        r#"
+                        "STRING1": {},
+                        "STRING2": {}
+                    "#,
+                        left_data.val, right_data.val
+                    ),
+                    fields: String::new(),
+                };
+
+                let mut deps = Vec::from([block.to_json()]);
+                deps.extend(left_data.deps);
+                deps.extend(right_data.deps);
+
+                ExprData { val: format!(r#"[3, "{}", [7, ""]]"#, self.uuid), deps }
             },
         }
     }
@@ -975,6 +1003,17 @@ fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
                 uuid: Uuid::new_v4(),
                 op: Op::ListClear { list: Arc::clone(&args) },
             });
+
+            body.push(Block {
+                uuid: Uuid::new_v4(),
+                op: Op::ListPush {
+                    list: Arc::clone(&stdout),
+                    val: LitExpr {
+                        uuid: Uuid::new_v4(),
+                        kind: LitExprKind::Literal(Arc::new(String::new())),
+                    },
+                },
+            });
         }
 
         // var alloc / arg retrieval
@@ -997,10 +1036,42 @@ fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
             });
         }
 
+        // clear args after use
+        body.push(Block { uuid: Uuid::new_v4(), op: Op::ListClear { list: Arc::clone(&args) } });
+
         let blocks = def.body.into_iter().map(|command| match command {
-            Command::Out(msg) => Ok(Vec::from([Op::ListPush {
+            Command::Out(msg) => Ok(Vec::from([Op::ListSet {
                 list: Arc::clone(&stdout),
-                val: LitExpr { kind: LitExprKind::from_asm(&msg, &stack), uuid: Uuid::new_v4() },
+                index: LitExpr {
+                    uuid: Uuid::new_v4(),
+                    kind: LitExprKind::ListLen(Arc::clone(&stdout)),
+                },
+                val: LitExpr {
+                    uuid: Uuid::new_v4(),
+                    kind: LitExprKind::Join(
+                        Box::new(LitExpr {
+                            uuid: Uuid::new_v4(),
+                            kind: LitExprKind::ListIndex {
+                                list: Arc::clone(&stdout),
+                                index: Box::new(LitExpr {
+                                    uuid: Uuid::new_v4(),
+                                    kind: LitExprKind::ListLen(Arc::clone(&stdout)),
+                                }),
+                            },
+                        }),
+                        Box::new(LitExpr {
+                            uuid: Uuid::new_v4(),
+                            kind: LitExprKind::from_asm(&msg, &stack),
+                        }),
+                    ),
+                },
+            }])),
+            Command::OutL => Ok(Vec::from([Op::ListPush {
+                list: Arc::clone(&stdout),
+                val: LitExpr {
+                    kind: LitExprKind::Literal(Arc::new(String::new())),
+                    uuid: Uuid::new_v4(),
+                },
             }])),
             Command::In { dest } => Ok(Vec::from([Op::Ask, Op::ListSet {
                 list: Arc::clone(&stack),
