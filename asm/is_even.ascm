@@ -1,12 +1,12 @@
-DEFINE @main $a $b $temp
-STORE 2 $a
-STORE 2 $b
-ADD *$a *$b $temp
-CALL @is_even *$temp
-REC $a
-OUT *$a
+MAIN $num $num_is_even
+STORE "4" $num
+OUT "Is..."
+OUT *$num
+OUT "...even?"
+OUT ""
+OUT "Answer:"
+CALL @is_even *$num $num_is_even
+OUT *$num_is_even
 
-DEFINE @is_even $a $even
-MOD *$a 2 $even
-EQ *$even 1 $even
-RET *$even
+DEFINE @is_even $num $ret
+MOD *$num "2" *$ret

@@ -16,6 +16,7 @@ enum Command {
     Out(AsmVal),
     Store { val: AsmVal, addr: AsmVal },
     Call { function: String, args: Vec<AsmVal> },
+    Mod { left: AsmVal, right: AsmVal, dest: AsmVal },
 }
 
 #[derive(Debug)]
@@ -114,6 +115,12 @@ fn main() {
                     args.push(val);
                 }
                 Command::Call { function: function.into(), args }
+            },
+            "mod" => {
+                let left = parse_asm_val(&mut parts, &def.vars).expect("MOD needs left");
+                let right = parse_asm_val(&mut parts, &def.vars).expect("MOD needs right");
+                let dest = parse_asm_val(&mut parts, &def.vars).expect("MOD needs dest");
+                Command::Mod { left, right, dest }
             },
             op => panic!("unknown op: {}", op),
         };
@@ -258,8 +265,9 @@ struct List {
 enum ExprKind {
     Literal(String),
     ListLen(Arc<List>),
-    Sub(Box<Expr>, Box<Expr>),
     ListIndex { list: Arc<List>, index: Box<Expr> },
+    Sub(Box<Expr>, Box<Expr>),
+    Mod(Box<Expr>, Box<Expr>),
 }
 
 impl ExprKind {
@@ -355,6 +363,31 @@ impl Expr {
 
                 let mut deps = Vec::from([indexing_block.to_json()]);
                 deps.extend(index_data.deps);
+
+                ExprData { val: format!(r#"[3, "{}", [7, ""]]"#, self.uuid), deps }
+            },
+            ExprKind::Mod(left, right) => {
+                let left_data = left.data(self.uuid);
+                let right_data = right.data(self.uuid);
+
+                let mod_block = BlockJsonMaker {
+                    uuid: self.uuid,
+                    op_code: "operator_mod",
+                    next: None,
+                    prev: Some(parent),
+                    inputs: format!(
+                        r#"
+                        "NUM1": {},
+                        "NUM2": {}
+                    "#,
+                        left_data.val, right_data.val
+                    ),
+                    fields: String::new(),
+                };
+
+                let mut deps = Vec::from([mod_block.to_json()]);
+                deps.extend(left_data.deps);
+                deps.extend(right_data.deps);
 
                 ExprData { val: format!(r#"[3, "{}", [7, ""]]"#, self.uuid), deps }
             },
@@ -536,7 +569,7 @@ fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
         }
 
         // var alloc / arg retrieval
-        for var in &def.vars {
+        for var in def.vars.iter().rev() {
             body.push(Block {
                 uuid: Uuid::new_v4(),
                 op: Op::ListPush {
@@ -578,6 +611,20 @@ fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
                 let broadcast_command = Op::BroadcastSync(Arc::clone(message));
                 let commands = arg_commands.chain([broadcast_command]);
                 Ok(commands.collect())
+            },
+            Command::Mod { left, right, dest } => {
+                let left = Expr { uuid: Uuid::new_v4(), kind: ExprKind::from_asm(left, &stack) };
+                let right = Expr { uuid: Uuid::new_v4(), kind: ExprKind::from_asm(right, &stack) };
+                let dest = Expr { uuid: Uuid::new_v4(), kind: ExprKind::from_asm(dest, &stack) };
+
+                Ok(Vec::from([Op::ListSet {
+                    list: Arc::clone(&stack),
+                    index: dest,
+                    val: Expr {
+                        uuid: Uuid::new_v4(),
+                        kind: ExprKind::Mod(Box::new(left), Box::new(right)),
+                    },
+                }]))
             },
         });
 
