@@ -14,9 +14,10 @@ use zip_extensions::ZipWriterExtensions;
 #[derive(Debug)]
 enum Command {
     Out(AsmVal),
-    Store { val: AsmVal, addr: AsmVal },
+    Store { val: Arc<AsmVal>, addr: Arc<AsmVal> },
     Call { function: String, args: Vec<AsmVal> },
-    Mod { left: AsmVal, right: AsmVal, dest: AsmVal },
+    Mod { left: Arc<AsmVal>, right: Arc<AsmVal>, dest: Arc<AsmVal> },
+    Eq { left: Arc<AsmVal>, right: Arc<AsmVal>, dest: Arc<AsmVal> },
 }
 
 #[derive(Debug)]
@@ -105,7 +106,7 @@ fn main() {
             "store" => {
                 let val = parse_asm_val(&mut parts, &def.vars).expect("STORE needs val");
                 let addr = parse_asm_val(&mut parts, &def.vars).expect("STORE needs addr");
-                Command::Store { val, addr }
+                Command::Store { val: Arc::new(val), addr: Arc::new(addr) }
             },
             "call" => {
                 let function = parse_function_name(&mut parts).expect("CALL needs function");
@@ -120,7 +121,13 @@ fn main() {
                 let left = parse_asm_val(&mut parts, &def.vars).expect("MOD needs left");
                 let right = parse_asm_val(&mut parts, &def.vars).expect("MOD needs right");
                 let dest = parse_asm_val(&mut parts, &def.vars).expect("MOD needs dest");
-                Command::Mod { left, right, dest }
+                Command::Mod { left: Arc::new(left), right: Arc::new(right), dest: Arc::new(dest) }
+            },
+            "eq" => {
+                let left = parse_asm_val(&mut parts, &def.vars).expect("MOD needs left");
+                let right = parse_asm_val(&mut parts, &def.vars).expect("MOD needs right");
+                let dest = parse_asm_val(&mut parts, &def.vars).expect("MOD needs dest");
+                Command::Eq { left: Arc::new(left), right: Arc::new(right), dest: Arc::new(dest) }
             },
             op => panic!("unknown op: {}", op),
         };
@@ -178,7 +185,7 @@ fn main() {
 
 #[derive(Debug)]
 enum AsmVal {
-    Literal(String),
+    Literal(Arc<String>),
     StackOffset(usize),
     StackDeref(Box<AsmVal>),
 }
@@ -188,7 +195,7 @@ fn parse_asm_val(parts: &mut VecDeque<&str>, vars: &[Var]) -> Result<AsmVal, ()>
     let Some(first_char) = first.chars().next() else { return Err(()) };
 
     match first_char {
-        '"' => parse_literal(parts).map(AsmVal::Literal),
+        '"' => parse_literal(parts).map(|s| AsmVal::Literal(Arc::new(s))),
         '$' => parse_stack_offset(parts, vars).map(AsmVal::StackOffset),
         '*' => parse_stack_deref(parts, vars).map(AsmVal::StackDeref),
         _ => Err(()),
@@ -262,30 +269,33 @@ struct List {
 }
 
 #[derive(Debug)]
-enum ExprKind {
-    Literal(String),
+enum LitExprKind {
+    Literal(Arc<String>),
     ListLen(Arc<List>),
-    ListIndex { list: Arc<List>, index: Box<Expr> },
-    Sub(Box<Expr>, Box<Expr>),
-    Mod(Box<Expr>, Box<Expr>),
+    ListIndex { list: Arc<List>, index: Box<LitExpr> },
+    Sub(Box<LitExpr>, Box<LitExpr>),
+    Mod(Box<LitExpr>, Box<LitExpr>),
 }
 
-impl ExprKind {
-    fn from_asm(value: AsmVal, stack: &Arc<List>) -> Self {
+impl LitExprKind {
+    fn from_asm(value: &AsmVal, stack: &Arc<List>) -> Self {
         match value {
-            AsmVal::Literal(l) => ExprKind::Literal(l),
-            AsmVal::StackOffset(offset) => ExprKind::Sub(
-                Box::new(Expr { uuid: Uuid::new_v4(), kind: ExprKind::ListLen(Arc::clone(stack)) }),
-                Box::new(Expr {
+            AsmVal::Literal(l) => LitExprKind::Literal(Arc::clone(l)),
+            AsmVal::StackOffset(offset) => LitExprKind::Sub(
+                Box::new(LitExpr {
                     uuid: Uuid::new_v4(),
-                    kind: ExprKind::Literal(offset.to_string()),
+                    kind: LitExprKind::ListLen(Arc::clone(stack)),
+                }),
+                Box::new(LitExpr {
+                    uuid: Uuid::new_v4(),
+                    kind: LitExprKind::Literal(Arc::new(offset.to_string())),
                 }),
             ),
             AsmVal::StackDeref(addr) => {
-                let addr = ExprKind::from_asm(*addr, stack);
-                ExprKind::ListIndex {
+                let addr = LitExprKind::from_asm(&addr, stack);
+                LitExprKind::ListIndex {
                     list: Arc::clone(stack),
-                    index: Box::new(Expr { uuid: Uuid::new_v4(), kind: addr }),
+                    index: Box::new(LitExpr { uuid: Uuid::new_v4(), kind: addr }),
                 }
             },
         }
@@ -293,9 +303,52 @@ impl ExprKind {
 }
 
 #[derive(Debug)]
-struct Expr {
+struct LitExpr {
     uuid: Uuid,
-    kind: ExprKind,
+    kind: LitExprKind,
+}
+
+#[derive(Debug)]
+enum BoolExprKind {
+    Eq(Box<LitExpr>, Box<LitExpr>),
+}
+
+#[derive(Debug)]
+struct BoolExpr {
+    uuid: Uuid,
+    kind: BoolExprKind,
+}
+
+impl BoolExpr {
+    pub fn data(&self, parent: Uuid) -> ExprData {
+        match &self.kind {
+            BoolExprKind::Eq(left, right) => {
+                let left_data = left.data(self.uuid);
+                let right_data = right.data(self.uuid);
+
+                let eq_block = BlockJsonMaker {
+                    uuid: self.uuid,
+                    op_code: "operator_equals",
+                    next: None,
+                    prev: Some(parent),
+                    inputs: format!(
+                        r#"
+                        "OPERAND1": {},
+                        "OPERAND2": {}
+                    "#,
+                        left_data.val, right_data.val
+                    ),
+                    fields: String::new(),
+                };
+
+                let mut deps = Vec::from([eq_block.to_json()]);
+                deps.extend(left_data.deps);
+                deps.extend(right_data.deps);
+
+                ExprData { val: format!(r#"[2, "{}"]"#, self.uuid), deps }
+            },
+        }
+    }
 }
 
 struct ExprData {
@@ -303,13 +356,13 @@ struct ExprData {
     deps: Vec<String>,
 }
 
-impl Expr {
+impl LitExpr {
     pub fn data(&self, parent: Uuid) -> ExprData {
         match &self.kind {
-            ExprKind::Literal(s) => {
+            LitExprKind::Literal(s) => {
                 ExprData { val: format!(r#"[1, [10, "{}"]]"#, s), deps: Vec::default() }
             },
-            ExprKind::ListLen(list) => {
+            LitExprKind::ListLen(list) => {
                 let list_len_block = BlockJsonMaker {
                     uuid: self.uuid,
                     op_code: "data_lengthoflist",
@@ -324,7 +377,7 @@ impl Expr {
                     deps: Vec::from([list_len_block.to_json()]),
                 }
             },
-            ExprKind::Sub(a, b) => {
+            LitExprKind::Sub(a, b) => {
                 let a_data = a.data(self.uuid);
                 let b_data = b.data(self.uuid);
 
@@ -349,7 +402,7 @@ impl Expr {
 
                 ExprData { val: format!(r#"[3, "{}", [7, ""]]"#, self.uuid), deps }
             },
-            ExprKind::ListIndex { list, index } => {
+            LitExprKind::ListIndex { list, index } => {
                 let index_data = index.data(self.uuid);
 
                 let indexing_block = BlockJsonMaker {
@@ -366,7 +419,7 @@ impl Expr {
 
                 ExprData { val: format!(r#"[3, "{}", [7, ""]]"#, self.uuid), deps }
             },
-            ExprKind::Mod(left, right) => {
+            LitExprKind::Mod(left, right) => {
                 let left_data = left.data(self.uuid);
                 let right_data = right.data(self.uuid);
 
@@ -405,11 +458,13 @@ struct Message {
 enum Op {
     OnFlag,
     OnMessage(Arc<Message>),
-    ListPush { list: Arc<List>, val: Expr },
+    ListPush { list: Arc<List>, val: LitExpr },
     ListClear { list: Arc<List> },
-    ListRemove { list: Arc<List>, index: Expr },
-    ListSet { list: Arc<List>, index: Expr, val: Expr },
+    ListRemove { list: Arc<List>, index: LitExpr },
+    ListSet { list: Arc<List>, index: LitExpr, val: LitExpr },
     BroadcastSync(Arc<Message>),
+    If { cond: BoolExpr, then: Body },
+    IfElse { cond: BoolExpr, then: Body, otherwise: Body },
 }
 
 #[derive(Debug)]
@@ -426,8 +481,8 @@ struct BlockData {
 }
 
 impl Block {
-    pub fn data(&self) -> BlockData {
-        match &self.op {
+    pub fn data(&self) -> Result<BlockData, ()> {
+        let block_data = match &self.op {
             Op::OnFlag => BlockData {
                 op_code: "event_whenflagclicked",
                 inputs: String::new(),
@@ -494,7 +549,54 @@ impl Block {
                 fields: String::new(),
                 deps: Vec::default(),
             },
-        }
+            Op::If { cond, then } => {
+                let cond_data = cond.data(self.uuid);
+                let then_data = then.data(None)?;
+
+                let mut deps = Vec::default();
+                deps.extend(cond_data.deps);
+                deps.extend(then_data.deps);
+
+                BlockData {
+                    op_code: "control_if",
+                    inputs: format!(
+                        r#"
+                            "CONDITION": {},
+                            "SUBSTACK": [2, "{}"]
+                        "#,
+                        cond_data.val, then_data.first_uuid
+                    ),
+                    fields: String::new(),
+                    deps,
+                }
+            },
+            Op::IfElse { cond, then, otherwise } => {
+                let cond_data = cond.data(self.uuid);
+                let then_data = then.data(None)?;
+                let else_data = otherwise.data(None)?;
+
+                let mut deps = Vec::default();
+                deps.extend(cond_data.deps);
+                deps.extend(then_data.deps);
+                deps.extend(else_data.deps);
+
+                BlockData {
+                    op_code: "control_if_else",
+                    inputs: format!(
+                        r#"
+                            "CONDITION": {},
+                            "SUBSTACK": [2, "{}"],
+                            "SUBSTACK2": [2, "{}"]
+                        "#,
+                        cond_data.val, then_data.first_uuid, else_data.first_uuid
+                    ),
+                    fields: String::new(),
+                    deps,
+                }
+            },
+        };
+
+        Ok(block_data)
     }
 }
 
@@ -506,9 +608,97 @@ struct Root {
 }
 
 #[derive(Debug)]
+struct Body {
+    blocks: Vec<Block>,
+}
+
+struct BodyData {
+    first_uuid: Uuid,
+    deps: Vec<String>,
+}
+
+impl Body {
+    pub fn data(&self, root: Option<&Root>) -> Result<BodyData, ()> {
+        struct Link<'a> {
+            block: &'a Block,
+            prev: Option<Uuid>,
+            next: Option<Uuid>,
+        }
+
+        let blocks =
+            [root.map(|root| &root.block)].into_iter().flatten().chain(&self.blocks).collect_vec();
+        let block_uuids = blocks.iter().map(|block| block.uuid).collect_vec();
+
+        let mut prev = None;
+        let mut next_iter = block_uuids.into_iter().skip(1);
+
+        let mut links = Vec::default();
+
+        for block in blocks {
+            let cur_uuid = block.uuid;
+            let next = next_iter.next();
+            links.push(Link { block, prev, next });
+            prev = Some(cur_uuid);
+        }
+
+        let Some(first_link) = links.first() else { return Err(()) };
+        let first_uuid = first_link.block.uuid;
+
+        let mut links = links.into_iter();
+        let mut blocks = Vec::default();
+
+        if let Some(root) = root {
+            let Some(root_link) = links.next() else { return Err(()) };
+
+            let root_block_data = root_link.block.data()?;
+            let root_block = format!(
+                r#"
+            "{}": {{
+                "opcode": "{}",
+                "next": {},
+                "parent": {},
+                "inputs": {{{}}},
+                "fields": {{{}}},
+                "shadow": false,
+                "topLevel": true,
+                "x": {},
+                "y": {}
+            }}
+        "#,
+                root_link.block.uuid,
+                root_block_data.op_code,
+                link_to_json(root_link.next),
+                link_to_json(root_link.prev),
+                root_block_data.inputs,
+                root_block_data.fields,
+                root.x,
+                root.y
+            );
+            blocks.push(root_block);
+        }
+
+        for link in links {
+            let block_data = link.block.data()?;
+            let block = BlockJsonMaker {
+                uuid: link.block.uuid,
+                op_code: block_data.op_code,
+                next: link.next,
+                prev: link.prev,
+                inputs: block_data.inputs,
+                fields: block_data.fields,
+            };
+            blocks.push(block.to_json());
+            blocks.extend(block_data.deps);
+        }
+
+        Ok(BodyData { first_uuid, deps: blocks })
+    }
+}
+
+#[derive(Debug)]
 struct Chain {
-    head: Root,
-    body: Vec<Block>,
+    root: Root,
+    body: Body,
 }
 
 #[derive(Debug)]
@@ -574,13 +764,13 @@ fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
                 uuid: Uuid::new_v4(),
                 op: Op::ListPush {
                     list: Arc::clone(&stack),
-                    val: Expr {
+                    val: LitExpr {
                         uuid: Uuid::new_v4(),
-                        kind: ExprKind::ListIndex {
+                        kind: LitExprKind::ListIndex {
                             list: Arc::clone(&args),
-                            index: Box::new(Expr {
+                            index: Box::new(LitExpr {
                                 uuid: Uuid::new_v4(),
-                                kind: ExprKind::Literal((var.offset + 1).to_string()),
+                                kind: LitExprKind::Literal(Arc::new((var.offset + 1).to_string())),
                             }),
                         },
                     },
@@ -591,12 +781,12 @@ fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
         let blocks = def.body.into_iter().map(|command| match command {
             Command::Out(msg) => Ok(Vec::from([Op::ListPush {
                 list: Arc::clone(&stdout),
-                val: Expr { kind: ExprKind::from_asm(msg, &stack), uuid: Uuid::new_v4() },
+                val: LitExpr { kind: LitExprKind::from_asm(&msg, &stack), uuid: Uuid::new_v4() },
             }])),
             Command::Store { val, addr } => Ok(Vec::from([Op::ListSet {
                 list: Arc::clone(&stack),
-                index: Expr { kind: ExprKind::from_asm(addr, &stack), uuid: Uuid::new_v4() },
-                val: Expr { kind: ExprKind::from_asm(val, &stack), uuid: Uuid::new_v4() },
+                index: LitExpr { kind: LitExprKind::from_asm(&addr, &stack), uuid: Uuid::new_v4() },
+                val: LitExpr { kind: LitExprKind::from_asm(&val, &stack), uuid: Uuid::new_v4() },
             }])),
             Command::Call { function, args: fn_args } => {
                 let Some(message) = message_name_to_message.get(&function) else {
@@ -605,7 +795,10 @@ fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
 
                 let arg_commands = fn_args.into_iter().map(|arg| Op::ListPush {
                     list: Arc::clone(&args),
-                    val: Expr { kind: ExprKind::from_asm(arg, &stack), uuid: Uuid::new_v4() },
+                    val: LitExpr {
+                        kind: LitExprKind::from_asm(&arg, &stack),
+                        uuid: Uuid::new_v4(),
+                    },
                 });
 
                 let broadcast_command = Op::BroadcastSync(Arc::clone(message));
@@ -613,16 +806,65 @@ fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
                 Ok(commands.collect())
             },
             Command::Mod { left, right, dest } => {
-                let left = Expr { uuid: Uuid::new_v4(), kind: ExprKind::from_asm(left, &stack) };
-                let right = Expr { uuid: Uuid::new_v4(), kind: ExprKind::from_asm(right, &stack) };
-                let dest = Expr { uuid: Uuid::new_v4(), kind: ExprKind::from_asm(dest, &stack) };
+                let left =
+                    LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::from_asm(&left, &stack) };
+                let right =
+                    LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::from_asm(&right, &stack) };
+                let dest =
+                    LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::from_asm(&dest, &stack) };
 
                 Ok(Vec::from([Op::ListSet {
                     list: Arc::clone(&stack),
                     index: dest,
-                    val: Expr {
+                    val: LitExpr {
                         uuid: Uuid::new_v4(),
-                        kind: ExprKind::Mod(Box::new(left), Box::new(right)),
+                        kind: LitExprKind::Mod(Box::new(left), Box::new(right)),
+                    },
+                }]))
+            },
+            Command::Eq { left, right, dest } => {
+                let left =
+                    LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::from_asm(&left, &stack) };
+                let right =
+                    LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::from_asm(&right, &stack) };
+
+                // need unique blocks for each branch, they can't share uuids or they'd be the
+                // same block in two places
+                let then_dest =
+                    LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::from_asm(&dest, &stack) };
+                let else_dest =
+                    LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::from_asm(&dest, &stack) };
+
+                Ok(Vec::from([Op::IfElse {
+                    cond: BoolExpr {
+                        uuid: Uuid::new_v4(),
+                        kind: BoolExprKind::Eq(Box::new(left), Box::new(right)),
+                    },
+                    then: Body {
+                        blocks: Vec::from([Block {
+                            uuid: Uuid::new_v4(),
+                            op: Op::ListSet {
+                                list: Arc::clone(&stack),
+                                index: then_dest,
+                                val: LitExpr {
+                                    uuid: Uuid::new_v4(),
+                                    kind: LitExprKind::Literal(Arc::new("1".into())),
+                                },
+                            },
+                        }]),
+                    },
+                    otherwise: Body {
+                        blocks: Vec::from([Block {
+                            uuid: Uuid::new_v4(),
+                            op: Op::ListSet {
+                                list: Arc::clone(&stack),
+                                index: else_dest,
+                                val: LitExpr {
+                                    uuid: Uuid::new_v4(),
+                                    kind: LitExprKind::Literal(Arc::new("0".into())),
+                                },
+                            },
+                        }]),
                     },
                 }]))
             },
@@ -637,15 +879,17 @@ fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
                 uuid: Uuid::new_v4(),
                 op: Op::ListRemove {
                     list: Arc::clone(&stack),
-                    index: Expr {
-                        kind: ExprKind::ListLen(Arc::clone(&stack)),
+                    index: LitExpr {
+                        kind: LitExprKind::ListLen(Arc::clone(&stack)),
                         uuid: Uuid::new_v4(),
                     },
                 },
             });
         }
 
-        Ok(Chain { head, body })
+        let body = Body { blocks: body };
+
+        Ok(Chain { root: head, body })
     });
 
     let chains = chains.collect::<Result<Vec<_>, _>>()?;
@@ -660,78 +904,10 @@ fn export(compiled: Compiled) -> Result<String, ()> {
     let lists = lists.into_iter().map(|list| format!(r#""{}": ["{}", []]"#, list.uuid, list.name));
     let lists = lists.collect_vec().join(",");
 
-    let chains = compiled.chains.into_iter().map(|chain| {
-        struct Link {
-            block: Block,
-            prev: Option<Uuid>,
-            next: Option<Uuid>,
-        }
-
-        let blocks = [chain.head.block].into_iter().chain(chain.body).collect_vec();
-        let block_uuids = blocks.iter().map(|block| block.uuid).collect_vec();
-
-        let mut prev = None;
-        let mut next_iter = block_uuids.into_iter().skip(1);
-
-        let mut links = Vec::default();
-
-        for block in blocks {
-            let cur_uuid = block.uuid;
-            let next = next_iter.next();
-            links.push(Link { block, prev, next });
-            prev = Some(cur_uuid);
-        }
-
-        let mut links = links.into_iter();
-        let mut blocks = Vec::default();
-
-        let Some(root_link) = links.next() else { return Err(()) };
-
-        let root_block_data = root_link.block.data();
-        let root_block = format!(
-            r#"
-            "{}": {{
-                "opcode": "{}",
-                "next": {},
-                "parent": {},
-                "inputs": {{{}}},
-                "fields": {{{}}},
-                "shadow": false,
-                "topLevel": true,
-                "x": {},
-                "y": {}
-            }}
-        "#,
-            root_link.block.uuid,
-            root_block_data.op_code,
-            link_to_json(root_link.next),
-            link_to_json(root_link.prev),
-            root_block_data.inputs,
-            root_block_data.fields,
-            chain.head.x,
-            chain.head.y
-        );
-        blocks.push(root_block);
-
-        for link in links {
-            let block_data = link.block.data();
-            let block = BlockJsonMaker {
-                uuid: link.block.uuid,
-                op_code: block_data.op_code,
-                next: link.next,
-                prev: link.prev,
-                inputs: block_data.inputs,
-                fields: block_data.fields,
-            };
-            blocks.push(block.to_json());
-            blocks.extend(block_data.deps);
-        }
-
-        Ok(blocks)
-    });
+    let chains = compiled.chains.into_iter().map(|chain| chain.body.data(Some(&chain.root)));
     let chains = chains.collect::<Result<Vec<_>, _>>();
     let Ok(chains) = chains else { return Err(()) };
-    let blocks = chains.into_iter().flatten().collect_vec().join(",");
+    let blocks = chains.into_iter().flat_map(|data| data.deps).collect_vec().join(",");
 
     let broadcasts = compiled
         .message_name_to_message

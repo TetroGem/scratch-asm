@@ -10,3 +10,4 @@ OUT *$num_is_even
 
 DEFINE @is_even $num $ret
 MOD *$num "2" *$ret
+EQ **$ret "0" *$ret
