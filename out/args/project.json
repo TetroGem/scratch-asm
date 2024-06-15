@@ -1,0 +1,231 @@
+
+        {
+            "targets": [
+        {
+            "isStage": true,
+            "name": "Stage",
+            "variables": {},
+            "lists": {"d844a8c9-b622-4952-b9d7-18109cab3f94": ["::stdout", []],"8a895411-794b-447a-baa9-987b3fc1ee3a": ["::stack", []]},
+            "broadcasts": {"c1bef62d-2778-4399-8069-6ecfb5724013": "@wrapped_out"},
+            "blocks": {
+            "792dc032-2908-43d0-b8e9-d7160173e3bb": {
+                "opcode": "event_whenflagclicked",
+                "next": "43ffdf14-0af4-4211-aa9a-78c332f8c92c",
+                "parent": null,
+                "inputs": {},
+                "fields": {},
+                "shadow": false,
+                "topLevel": true,
+                "x": 0,
+                "y": 0
+            }
+        ,
+            "43ffdf14-0af4-4211-aa9a-78c332f8c92c": {
+                "opcode": "data_deletealloflist",
+                "next": "3c37538d-f8d2-41fa-adf4-6b3bd9960a8e",
+                "parent": "792dc032-2908-43d0-b8e9-d7160173e3bb",
+                "inputs": {},
+                "fields": {"LIST": ["::stdout", "d844a8c9-b622-4952-b9d7-18109cab3f94"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "3c37538d-f8d2-41fa-adf4-6b3bd9960a8e": {
+                "opcode": "data_deletealloflist",
+                "next": "8b0fee64-b2af-47a1-82d7-90cc75dfc7ed",
+                "parent": "43ffdf14-0af4-4211-aa9a-78c332f8c92c",
+                "inputs": {},
+                "fields": {"LIST": ["::stack", "8a895411-794b-447a-baa9-987b3fc1ee3a"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "8b0fee64-b2af-47a1-82d7-90cc75dfc7ed": {
+                "opcode": "data_deletealloflist",
+                "next": "2bcb45d8-2609-496b-860f-9e839ee233b9",
+                "parent": "3c37538d-f8d2-41fa-adf4-6b3bd9960a8e",
+                "inputs": {},
+                "fields": {"LIST": ["::args", "cc12a797-0a78-490e-8248-edcb6ba042fc"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "2bcb45d8-2609-496b-860f-9e839ee233b9": {
+                "opcode": "data_addtolist",
+                "next": "bf8f9a00-7b54-490c-ab52-2e4dd1ec8762",
+                "parent": "8b0fee64-b2af-47a1-82d7-90cc75dfc7ed",
+                "inputs": {"ITEM": [1, [10, "Hello world!"]]},
+                "fields": {"LIST": ["::args", "cc12a797-0a78-490e-8248-edcb6ba042fc"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "bf8f9a00-7b54-490c-ab52-2e4dd1ec8762": {
+                "opcode": "event_broadcastandwait",
+                "next": null,
+                "parent": "2bcb45d8-2609-496b-860f-9e839ee233b9",
+                "inputs": {"BROADCAST_INPUT": [1, [11, "@wrapped_out", "c1bef62d-2778-4399-8069-6ecfb5724013"]]},
+                "fields": {},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "1cdbdde6-ea97-4d04-a359-bb5dba34013d": {
+                "opcode": "event_whenbroadcastreceived",
+                "next": "4c6a1185-5a51-44d0-aeb2-b94194246278",
+                "parent": null,
+                "inputs": {},
+                "fields": {"BROADCAST_OPTION": ["@wrapped_out", "c1bef62d-2778-4399-8069-6ecfb5724013"]},
+                "shadow": false,
+                "topLevel": true,
+                "x": 0,
+                "y": 0
+            }
+        ,
+            "4c6a1185-5a51-44d0-aeb2-b94194246278": {
+                "opcode": "data_addtolist",
+                "next": "ffb46cac-b616-46c8-901b-bc1656d0111b",
+                "parent": "1cdbdde6-ea97-4d04-a359-bb5dba34013d",
+                "inputs": {"ITEM": [3, "17cea1e3-d5eb-4519-b4d1-bcd3e8d3cbbb", [7, ""]]},
+                "fields": {"LIST": ["::stack", "8a895411-794b-447a-baa9-987b3fc1ee3a"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "17cea1e3-d5eb-4519-b4d1-bcd3e8d3cbbb": {
+                "opcode": "data_itemoflist",
+                "next": null,
+                "parent": "4c6a1185-5a51-44d0-aeb2-b94194246278",
+                "inputs": {"INDEX": [1, [10, "1"]]},
+                "fields": {"LIST": ["::args", "cc12a797-0a78-490e-8248-edcb6ba042fc"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "ffb46cac-b616-46c8-901b-bc1656d0111b": {
+                "opcode": "data_addtolist",
+                "next": "d57eba24-8aaa-460c-a939-180c114810c2",
+                "parent": "4c6a1185-5a51-44d0-aeb2-b94194246278",
+                "inputs": {"ITEM": [1, [10, "====="]]},
+                "fields": {"LIST": ["::stdout", "d844a8c9-b622-4952-b9d7-18109cab3f94"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "d57eba24-8aaa-460c-a939-180c114810c2": {
+                "opcode": "data_addtolist",
+                "next": "5527c84a-1920-4ac0-82ef-94889b12d2b9",
+                "parent": "ffb46cac-b616-46c8-901b-bc1656d0111b",
+                "inputs": {"ITEM": [3, "5d723ef6-ee72-4f4b-889f-2191816bf04f", [7, ""]]},
+                "fields": {"LIST": ["::stdout", "d844a8c9-b622-4952-b9d7-18109cab3f94"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "5d723ef6-ee72-4f4b-889f-2191816bf04f": {
+                "opcode": "data_itemoflist",
+                "next": null,
+                "parent": "d57eba24-8aaa-460c-a939-180c114810c2",
+                "inputs": {"INDEX": [3, "65eb6fa6-9570-464a-8264-efbf1b6c2ee4", [7, ""]]},
+                "fields": {"LIST": ["::stack", "8a895411-794b-447a-baa9-987b3fc1ee3a"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "65eb6fa6-9570-464a-8264-efbf1b6c2ee4": {
+                "opcode": "operator_subtract",
+                "next": null,
+                "parent": "5d723ef6-ee72-4f4b-889f-2191816bf04f",
+                "inputs": {
+                        "NUM1": [3, "a628ac0c-b796-4736-9043-280db4b9e55e", [7, ""]],
+                        "NUM2": [1, [10, "0"]]
+                    },
+                "fields": {},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "a628ac0c-b796-4736-9043-280db4b9e55e": {
+                "opcode": "data_lengthoflist",
+                "next": null,
+                "parent": "65eb6fa6-9570-464a-8264-efbf1b6c2ee4",
+                "inputs": {},
+                "fields": {"LIST": ["::stack", "8a895411-794b-447a-baa9-987b3fc1ee3a"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "5527c84a-1920-4ac0-82ef-94889b12d2b9": {
+                "opcode": "data_addtolist",
+                "next": "a2e40df2-3f04-402e-baef-a14b17fbf013",
+                "parent": "d57eba24-8aaa-460c-a939-180c114810c2",
+                "inputs": {"ITEM": [1, [10, "====="]]},
+                "fields": {"LIST": ["::stdout", "d844a8c9-b622-4952-b9d7-18109cab3f94"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "a2e40df2-3f04-402e-baef-a14b17fbf013": {
+                "opcode": "data_deleteoflist",
+                "next": null,
+                "parent": "5527c84a-1920-4ac0-82ef-94889b12d2b9",
+                "inputs": {"INDEX": [3, "26369d73-0b06-4cb8-b44a-d052b6b05be4", [7, ""]]},
+                "fields": {"LIST": ["::stack", "8a895411-794b-447a-baa9-987b3fc1ee3a"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "26369d73-0b06-4cb8-b44a-d052b6b05be4": {
+                "opcode": "data_lengthoflist",
+                "next": null,
+                "parent": "a2e40df2-3f04-402e-baef-a14b17fbf013",
+                "inputs": {},
+                "fields": {"LIST": ["::stack", "8a895411-794b-447a-baa9-987b3fc1ee3a"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        },
+            "comments": {},
+            "currentCostume": 0,
+            "costumes": [
+                {
+                    "name": "backdrop1",
+                    "dataFormat": "svg",
+                    "assetId": "cd21514d0531fdffb22204e0ec5ed84a",
+                    "md5ext": "cd21514d0531fdffb22204e0ec5ed84a.svg",
+                    "rotationCenterX": 240,
+                    "rotationCenterY": 180
+                }
+            ],
+            "sounds": [],
+            "volume": 100,
+            "layerOrder": 0,
+            "tempo": 60,
+            "videoTransparency": 50,
+            "videoState": "on",
+            "textToSpeechLanguage": null
+        }
+    ],
+            "monitors": [
+        {
+            "id": "d844a8c9-b622-4952-b9d7-18109cab3f94",
+            "mode": "list",
+            "opcode": "data_listcontents",
+            "params": { "LIST": "::stdout" },
+            "spriteName": null,
+            "value": ["Hello world!", "1", "1"],
+            "width": 404,
+            "height": 299,
+            "x": 5,
+            "y": 5,
+            "visible": true
+        }
+    ],
+            "extensions": [],
+            "meta": {
+                "semver": "3.0.0",
+                "vm": "2.3.4",
+                "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+            }
+        }
+    

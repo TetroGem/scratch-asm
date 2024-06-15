@@ -1,0 +1,11 @@
+MAIN $num
+CALL @store_four $num
+OUT *$num
+CALL @store_ten $num
+OUT *$num
+
+DEFINE @store_four $ret
+STORE "4" *$ret
+
+DEFINE @store_ten $ret
+STORE "10" *$ret

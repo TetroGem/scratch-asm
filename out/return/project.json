@@ -1,0 +1,504 @@
+
+        {
+            "targets": [
+        {
+            "isStage": true,
+            "name": "Stage",
+            "variables": {},
+            "lists": {"fcf92850-c656-4538-9e2a-5ded0c14bbc0": ["::stdout", []],"1c007e82-8347-44db-94e1-7703255c27f0": ["::stack", []]},
+            "broadcasts": {"310ef915-eb14-41bb-8458-b7d7000053f2": "@store_four","bafe3746-4143-43c8-a512-70429e9618ca": "@store_ten"},
+            "blocks": {
+            "4ba3a185-ff63-4d80-b17a-5b38f6d2820d": {
+                "opcode": "event_whenflagclicked",
+                "next": "28124baa-4818-4308-b61c-5d84d9e6da99",
+                "parent": null,
+                "inputs": {},
+                "fields": {},
+                "shadow": false,
+                "topLevel": true,
+                "x": 0,
+                "y": 0
+            }
+        ,
+            "28124baa-4818-4308-b61c-5d84d9e6da99": {
+                "opcode": "data_deletealloflist",
+                "next": "8dee5e12-ac29-4d3a-919a-e47b00f1571c",
+                "parent": "4ba3a185-ff63-4d80-b17a-5b38f6d2820d",
+                "inputs": {},
+                "fields": {"LIST": ["::stdout", "fcf92850-c656-4538-9e2a-5ded0c14bbc0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "8dee5e12-ac29-4d3a-919a-e47b00f1571c": {
+                "opcode": "data_deletealloflist",
+                "next": "b2e7cb29-126f-4de4-861c-b87996ac81d9",
+                "parent": "28124baa-4818-4308-b61c-5d84d9e6da99",
+                "inputs": {},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "b2e7cb29-126f-4de4-861c-b87996ac81d9": {
+                "opcode": "data_deletealloflist",
+                "next": "983184d3-2663-42e1-928f-c67c9cd738c1",
+                "parent": "8dee5e12-ac29-4d3a-919a-e47b00f1571c",
+                "inputs": {},
+                "fields": {"LIST": ["::args", "eb3e1156-fa42-49a5-9d36-863c609214a1"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "983184d3-2663-42e1-928f-c67c9cd738c1": {
+                "opcode": "data_addtolist",
+                "next": "5c6fb8ca-b918-40b4-bd6e-881a136c4a42",
+                "parent": "b2e7cb29-126f-4de4-861c-b87996ac81d9",
+                "inputs": {"ITEM": [3, "ccf8ca83-6f20-485c-9bec-27e37a5658fc", [7, ""]]},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "ccf8ca83-6f20-485c-9bec-27e37a5658fc": {
+                "opcode": "data_itemoflist",
+                "next": null,
+                "parent": "983184d3-2663-42e1-928f-c67c9cd738c1",
+                "inputs": {"INDEX": [1, [10, "1"]]},
+                "fields": {"LIST": ["::args", "eb3e1156-fa42-49a5-9d36-863c609214a1"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "5c6fb8ca-b918-40b4-bd6e-881a136c4a42": {
+                "opcode": "data_addtolist",
+                "next": "57800dcb-ff06-4bde-ae6a-98f64f63bfb4",
+                "parent": "983184d3-2663-42e1-928f-c67c9cd738c1",
+                "inputs": {"ITEM": [3, "b9e9f107-2c9f-4c93-95a8-51badc8fd202", [7, ""]]},
+                "fields": {"LIST": ["::args", "eb3e1156-fa42-49a5-9d36-863c609214a1"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "b9e9f107-2c9f-4c93-95a8-51badc8fd202": {
+                "opcode": "operator_subtract",
+                "next": null,
+                "parent": "5c6fb8ca-b918-40b4-bd6e-881a136c4a42",
+                "inputs": {
+                        "NUM1": [3, "194a08d5-863c-4e16-976b-a2ace7595492", [7, ""]],
+                        "NUM2": [1, [10, "0"]]
+                    },
+                "fields": {},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "194a08d5-863c-4e16-976b-a2ace7595492": {
+                "opcode": "data_lengthoflist",
+                "next": null,
+                "parent": "b9e9f107-2c9f-4c93-95a8-51badc8fd202",
+                "inputs": {},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "57800dcb-ff06-4bde-ae6a-98f64f63bfb4": {
+                "opcode": "event_broadcastandwait",
+                "next": "66006b14-9bbc-433c-b4d3-850be01b7810",
+                "parent": "5c6fb8ca-b918-40b4-bd6e-881a136c4a42",
+                "inputs": {"BROADCAST_INPUT": [1, [11, "@store_four", "310ef915-eb14-41bb-8458-b7d7000053f2"]]},
+                "fields": {},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "66006b14-9bbc-433c-b4d3-850be01b7810": {
+                "opcode": "data_addtolist",
+                "next": "6d700e92-75cc-4937-a0ce-6821bf8577bb",
+                "parent": "57800dcb-ff06-4bde-ae6a-98f64f63bfb4",
+                "inputs": {"ITEM": [3, "5aed36ca-5f0e-49c1-a6a0-1884e91a7ab9", [7, ""]]},
+                "fields": {"LIST": ["::stdout", "fcf92850-c656-4538-9e2a-5ded0c14bbc0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "5aed36ca-5f0e-49c1-a6a0-1884e91a7ab9": {
+                "opcode": "data_itemoflist",
+                "next": null,
+                "parent": "66006b14-9bbc-433c-b4d3-850be01b7810",
+                "inputs": {"INDEX": [3, "92892df9-3765-4c34-aa13-f7084ed96d56", [7, ""]]},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "92892df9-3765-4c34-aa13-f7084ed96d56": {
+                "opcode": "operator_subtract",
+                "next": null,
+                "parent": "5aed36ca-5f0e-49c1-a6a0-1884e91a7ab9",
+                "inputs": {
+                        "NUM1": [3, "8f50d684-96a5-46f2-8ba9-e2779432f603", [7, ""]],
+                        "NUM2": [1, [10, "0"]]
+                    },
+                "fields": {},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "8f50d684-96a5-46f2-8ba9-e2779432f603": {
+                "opcode": "data_lengthoflist",
+                "next": null,
+                "parent": "92892df9-3765-4c34-aa13-f7084ed96d56",
+                "inputs": {},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "6d700e92-75cc-4937-a0ce-6821bf8577bb": {
+                "opcode": "data_addtolist",
+                "next": "7edb1444-37fb-4b16-a975-8b87c51de895",
+                "parent": "66006b14-9bbc-433c-b4d3-850be01b7810",
+                "inputs": {"ITEM": [3, "b944a01e-1c12-4348-9ddc-b594ec7954c9", [7, ""]]},
+                "fields": {"LIST": ["::args", "eb3e1156-fa42-49a5-9d36-863c609214a1"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "b944a01e-1c12-4348-9ddc-b594ec7954c9": {
+                "opcode": "operator_subtract",
+                "next": null,
+                "parent": "6d700e92-75cc-4937-a0ce-6821bf8577bb",
+                "inputs": {
+                        "NUM1": [3, "7e214fae-5e1c-4ad4-a663-bc08e1a70216", [7, ""]],
+                        "NUM2": [1, [10, "0"]]
+                    },
+                "fields": {},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "7e214fae-5e1c-4ad4-a663-bc08e1a70216": {
+                "opcode": "data_lengthoflist",
+                "next": null,
+                "parent": "b944a01e-1c12-4348-9ddc-b594ec7954c9",
+                "inputs": {},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "7edb1444-37fb-4b16-a975-8b87c51de895": {
+                "opcode": "event_broadcastandwait",
+                "next": "7207bf98-8b4e-4ace-80f6-44151c48409d",
+                "parent": "6d700e92-75cc-4937-a0ce-6821bf8577bb",
+                "inputs": {"BROADCAST_INPUT": [1, [11, "@store_ten", "bafe3746-4143-43c8-a512-70429e9618ca"]]},
+                "fields": {},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "7207bf98-8b4e-4ace-80f6-44151c48409d": {
+                "opcode": "data_addtolist",
+                "next": "5e135ba0-190b-4f4e-9973-85464e5d1cdd",
+                "parent": "7edb1444-37fb-4b16-a975-8b87c51de895",
+                "inputs": {"ITEM": [3, "9e5df63a-7241-40a9-84dc-e64ac3423a0d", [7, ""]]},
+                "fields": {"LIST": ["::stdout", "fcf92850-c656-4538-9e2a-5ded0c14bbc0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "9e5df63a-7241-40a9-84dc-e64ac3423a0d": {
+                "opcode": "data_itemoflist",
+                "next": null,
+                "parent": "7207bf98-8b4e-4ace-80f6-44151c48409d",
+                "inputs": {"INDEX": [3, "6e447ae1-f879-4368-b5e2-35e2e8cccc3e", [7, ""]]},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "6e447ae1-f879-4368-b5e2-35e2e8cccc3e": {
+                "opcode": "operator_subtract",
+                "next": null,
+                "parent": "9e5df63a-7241-40a9-84dc-e64ac3423a0d",
+                "inputs": {
+                        "NUM1": [3, "86bb5d79-5813-4817-b037-3c307c72d1d6", [7, ""]],
+                        "NUM2": [1, [10, "0"]]
+                    },
+                "fields": {},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "86bb5d79-5813-4817-b037-3c307c72d1d6": {
+                "opcode": "data_lengthoflist",
+                "next": null,
+                "parent": "6e447ae1-f879-4368-b5e2-35e2e8cccc3e",
+                "inputs": {},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "5e135ba0-190b-4f4e-9973-85464e5d1cdd": {
+                "opcode": "data_deleteoflist",
+                "next": null,
+                "parent": "7207bf98-8b4e-4ace-80f6-44151c48409d",
+                "inputs": {"INDEX": [3, "ed49dea9-2d44-4c1c-ac09-e3ff961722e5", [7, ""]]},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "ed49dea9-2d44-4c1c-ac09-e3ff961722e5": {
+                "opcode": "data_lengthoflist",
+                "next": null,
+                "parent": "5e135ba0-190b-4f4e-9973-85464e5d1cdd",
+                "inputs": {},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "f4e5e882-1aff-45b2-b6fd-20cc0004b334": {
+                "opcode": "event_whenbroadcastreceived",
+                "next": "d0345438-69cc-4088-9b24-8a34834507ff",
+                "parent": null,
+                "inputs": {},
+                "fields": {"BROADCAST_OPTION": ["@store_four", "310ef915-eb14-41bb-8458-b7d7000053f2"]},
+                "shadow": false,
+                "topLevel": true,
+                "x": 0,
+                "y": 0
+            }
+        ,
+            "d0345438-69cc-4088-9b24-8a34834507ff": {
+                "opcode": "data_addtolist",
+                "next": "8ef40f1b-5b96-4692-98f0-7d6eedfe1677",
+                "parent": "f4e5e882-1aff-45b2-b6fd-20cc0004b334",
+                "inputs": {"ITEM": [3, "f603642a-94c1-4bc0-8d61-e7a34437ba39", [7, ""]]},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "f603642a-94c1-4bc0-8d61-e7a34437ba39": {
+                "opcode": "data_itemoflist",
+                "next": null,
+                "parent": "d0345438-69cc-4088-9b24-8a34834507ff",
+                "inputs": {"INDEX": [1, [10, "1"]]},
+                "fields": {"LIST": ["::args", "eb3e1156-fa42-49a5-9d36-863c609214a1"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "8ef40f1b-5b96-4692-98f0-7d6eedfe1677": {
+                "opcode": "data_replaceitemoflist",
+                "next": "b4706543-261d-4539-bc7d-f03f62194bc5",
+                "parent": "d0345438-69cc-4088-9b24-8a34834507ff",
+                "inputs": {
+                        "INDEX": [3, "51fa2ced-273a-40e3-82a9-9b5e53461613", [7, ""]],
+                        "ITEM": [1, [10, "4"]]
+                    },
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "51fa2ced-273a-40e3-82a9-9b5e53461613": {
+                "opcode": "data_itemoflist",
+                "next": null,
+                "parent": "8ef40f1b-5b96-4692-98f0-7d6eedfe1677",
+                "inputs": {"INDEX": [3, "9fa5c991-4833-49f5-a080-9bfa4bbca659", [7, ""]]},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "9fa5c991-4833-49f5-a080-9bfa4bbca659": {
+                "opcode": "operator_subtract",
+                "next": null,
+                "parent": "51fa2ced-273a-40e3-82a9-9b5e53461613",
+                "inputs": {
+                        "NUM1": [3, "1615d2b5-0688-48b3-852b-2fb136accb65", [7, ""]],
+                        "NUM2": [1, [10, "0"]]
+                    },
+                "fields": {},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "1615d2b5-0688-48b3-852b-2fb136accb65": {
+                "opcode": "data_lengthoflist",
+                "next": null,
+                "parent": "9fa5c991-4833-49f5-a080-9bfa4bbca659",
+                "inputs": {},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "b4706543-261d-4539-bc7d-f03f62194bc5": {
+                "opcode": "data_deleteoflist",
+                "next": null,
+                "parent": "8ef40f1b-5b96-4692-98f0-7d6eedfe1677",
+                "inputs": {"INDEX": [3, "6a59fa0a-8fc2-4341-be45-9f26ea902aa4", [7, ""]]},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "6a59fa0a-8fc2-4341-be45-9f26ea902aa4": {
+                "opcode": "data_lengthoflist",
+                "next": null,
+                "parent": "b4706543-261d-4539-bc7d-f03f62194bc5",
+                "inputs": {},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "13e4fa6e-0424-4e43-a4ad-008664890071": {
+                "opcode": "event_whenbroadcastreceived",
+                "next": "408daee8-b550-4c16-8655-5a382456895f",
+                "parent": null,
+                "inputs": {},
+                "fields": {"BROADCAST_OPTION": ["@store_ten", "bafe3746-4143-43c8-a512-70429e9618ca"]},
+                "shadow": false,
+                "topLevel": true,
+                "x": 0,
+                "y": 0
+            }
+        ,
+            "408daee8-b550-4c16-8655-5a382456895f": {
+                "opcode": "data_addtolist",
+                "next": "f51127cd-b8d7-48a3-b2d5-5b252b2080a9",
+                "parent": "13e4fa6e-0424-4e43-a4ad-008664890071",
+                "inputs": {"ITEM": [3, "118371bf-33dc-435f-a829-bbd28db2fc51", [7, ""]]},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "118371bf-33dc-435f-a829-bbd28db2fc51": {
+                "opcode": "data_itemoflist",
+                "next": null,
+                "parent": "408daee8-b550-4c16-8655-5a382456895f",
+                "inputs": {"INDEX": [1, [10, "1"]]},
+                "fields": {"LIST": ["::args", "eb3e1156-fa42-49a5-9d36-863c609214a1"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "f51127cd-b8d7-48a3-b2d5-5b252b2080a9": {
+                "opcode": "data_replaceitemoflist",
+                "next": "269a9a2c-53bf-45d7-9273-3ff948b6df7b",
+                "parent": "408daee8-b550-4c16-8655-5a382456895f",
+                "inputs": {
+                        "INDEX": [3, "c3223553-d38e-4b22-abb2-a43f869625a2", [7, ""]],
+                        "ITEM": [1, [10, "10"]]
+                    },
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "c3223553-d38e-4b22-abb2-a43f869625a2": {
+                "opcode": "data_itemoflist",
+                "next": null,
+                "parent": "f51127cd-b8d7-48a3-b2d5-5b252b2080a9",
+                "inputs": {"INDEX": [3, "b67ded73-153e-414f-9777-c52ee7271c9c", [7, ""]]},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "b67ded73-153e-414f-9777-c52ee7271c9c": {
+                "opcode": "operator_subtract",
+                "next": null,
+                "parent": "c3223553-d38e-4b22-abb2-a43f869625a2",
+                "inputs": {
+                        "NUM1": [3, "af8bff37-4d63-4ac3-9ee7-20a7596896ab", [7, ""]],
+                        "NUM2": [1, [10, "0"]]
+                    },
+                "fields": {},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "af8bff37-4d63-4ac3-9ee7-20a7596896ab": {
+                "opcode": "data_lengthoflist",
+                "next": null,
+                "parent": "b67ded73-153e-414f-9777-c52ee7271c9c",
+                "inputs": {},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "269a9a2c-53bf-45d7-9273-3ff948b6df7b": {
+                "opcode": "data_deleteoflist",
+                "next": null,
+                "parent": "f51127cd-b8d7-48a3-b2d5-5b252b2080a9",
+                "inputs": {"INDEX": [3, "2a662299-8deb-43a6-82da-deb86701bb8b", [7, ""]]},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        ,
+            "2a662299-8deb-43a6-82da-deb86701bb8b": {
+                "opcode": "data_lengthoflist",
+                "next": null,
+                "parent": "269a9a2c-53bf-45d7-9273-3ff948b6df7b",
+                "inputs": {},
+                "fields": {"LIST": ["::stack", "1c007e82-8347-44db-94e1-7703255c27f0"]},
+                "shadow": false,
+                "topLevel": false
+            }
+        },
+            "comments": {},
+            "currentCostume": 0,
+            "costumes": [
+                {
+                    "name": "backdrop1",
+                    "dataFormat": "svg",
+                    "assetId": "cd21514d0531fdffb22204e0ec5ed84a",
+                    "md5ext": "cd21514d0531fdffb22204e0ec5ed84a.svg",
+                    "rotationCenterX": 240,
+                    "rotationCenterY": 180
+                }
+            ],
+            "sounds": [],
+            "volume": 100,
+            "layerOrder": 0,
+            "tempo": 60,
+            "videoTransparency": 50,
+            "videoState": "on",
+            "textToSpeechLanguage": null
+        }
+    ],
+            "monitors": [
+        {
+            "id": "fcf92850-c656-4538-9e2a-5ded0c14bbc0",
+            "mode": "list",
+            "opcode": "data_listcontents",
+            "params": { "LIST": "::stdout" },
+            "spriteName": null,
+            "value": ["Hello world!", "1", "1"],
+            "width": 404,
+            "height": 299,
+            "x": 5,
+            "y": 5,
+            "visible": true
+        }
+    ],
+            "extensions": [],
+            "meta": {
+                "semver": "3.0.0",
+                "vm": "2.3.4",
+                "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+            }
+        }
+    

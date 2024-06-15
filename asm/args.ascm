@@ -1,0 +1,7 @@
+MAIN
+CALL @wrapped_out "Hello world!"
+
+DEFINE @wrapped_out $msg
+OUT "====="
+OUT *$msg
+OUT "====="

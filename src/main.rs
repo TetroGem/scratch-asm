@@ -15,7 +15,7 @@ use zip_extensions::ZipWriterExtensions;
 enum Command {
     Out(AsmVal),
     Store { val: AsmVal, addr: AsmVal },
-    Call { function: String },
+    Call { function: String, args: Vec<AsmVal> },
 }
 
 #[derive(Debug)]
@@ -108,7 +108,12 @@ fn main() {
             },
             "call" => {
                 let function = parse_function_name(&mut parts).expect("CALL needs function");
-                Command::Call { function: function.into() }
+                let mut args = Vec::default();
+                while !parts.is_empty() {
+                    let val = parse_asm_val(&mut parts, &def.vars).expect("CALL invalid arg");
+                    args.push(val);
+                }
+                Command::Call { function: function.into(), args }
             },
             op => panic!("unknown op: {}", op),
         };
@@ -477,6 +482,7 @@ struct Chain {
 struct Compiled {
     stdout: Arc<List>,
     stack: Arc<List>,
+    args: Arc<List>,
     chains: Vec<Chain>,
     message_name_to_message: HashMap<String, Arc<Message>>,
 }
@@ -484,6 +490,7 @@ struct Compiled {
 fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
     let stdout = Arc::new(List { uuid: Uuid::new_v4(), name: "::stdout".into() });
     let stack = Arc::new(List { uuid: Uuid::new_v4(), name: "::stack".into() });
+    let args = Arc::new(List { uuid: Uuid::new_v4(), name: "::args".into() });
 
     let mut message_name_to_message = HashMap::new();
 
@@ -521,39 +528,61 @@ fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
                 uuid: Uuid::new_v4(),
                 op: Op::ListClear { list: Arc::clone(&stack) },
             });
+
+            body.push(Block {
+                uuid: Uuid::new_v4(),
+                op: Op::ListClear { list: Arc::clone(&args) },
+            });
         }
 
-        // var alloc
-        for _var in &def.vars {
+        // var alloc / arg retrieval
+        for var in &def.vars {
             body.push(Block {
                 uuid: Uuid::new_v4(),
                 op: Op::ListPush {
                     list: Arc::clone(&stack),
-                    val: Expr { kind: ExprKind::Literal(String::new()), uuid: Uuid::new_v4() },
+                    val: Expr {
+                        uuid: Uuid::new_v4(),
+                        kind: ExprKind::ListIndex {
+                            list: Arc::clone(&args),
+                            index: Box::new(Expr {
+                                uuid: Uuid::new_v4(),
+                                kind: ExprKind::Literal((var.offset + 1).to_string()),
+                            }),
+                        },
+                    },
                 },
             });
         }
 
         let blocks = def.body.into_iter().map(|command| match command {
-            Command::Out(msg) => Ok(Op::ListPush {
+            Command::Out(msg) => Ok(Vec::from([Op::ListPush {
                 list: Arc::clone(&stdout),
                 val: Expr { kind: ExprKind::from_asm(msg, &stack), uuid: Uuid::new_v4() },
-            }),
-            Command::Store { val, addr } => Ok(Op::ListSet {
+            }])),
+            Command::Store { val, addr } => Ok(Vec::from([Op::ListSet {
                 list: Arc::clone(&stack),
                 index: Expr { kind: ExprKind::from_asm(addr, &stack), uuid: Uuid::new_v4() },
                 val: Expr { kind: ExprKind::from_asm(val, &stack), uuid: Uuid::new_v4() },
-            }),
-            Command::Call { function } => {
+            }])),
+            Command::Call { function, args: fn_args } => {
                 let Some(message) = message_name_to_message.get(&function) else {
                     return Err(());
                 };
-                Ok(Op::BroadcastSync(Arc::clone(message)))
+
+                let arg_commands = fn_args.into_iter().map(|arg| Op::ListPush {
+                    list: Arc::clone(&args),
+                    val: Expr { kind: ExprKind::from_asm(arg, &stack), uuid: Uuid::new_v4() },
+                });
+
+                let broadcast_command = Op::BroadcastSync(Arc::clone(message));
+                let commands = arg_commands.chain([broadcast_command]);
+                Ok(commands.collect())
             },
         });
 
         let blocks = blocks.collect::<Result<Vec<_>, _>>()?;
-        body.extend(blocks.into_iter().map(|op| Block { uuid: Uuid::new_v4(), op }));
+        body.extend(blocks.into_iter().flatten().map(|op| Block { uuid: Uuid::new_v4(), op }));
 
         // var dealloc
         for _var in &def.vars {
@@ -574,7 +603,7 @@ fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
 
     let chains = chains.collect::<Result<Vec<_>, _>>()?;
 
-    Ok(Compiled { stdout, stack, chains, message_name_to_message })
+    Ok(Compiled { stdout, stack, args, chains, message_name_to_message })
 }
 
 fn export(compiled: Compiled) -> Result<String, ()> {
