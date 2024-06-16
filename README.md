@@ -37,5 +37,9 @@ In ScratchASM:
 - Variables are always preceded by $
 - Functions are always preceded by @
 - Instructions are case-insensitive
+## Operators
+ScratchASM has two special operators:
+- ; denotes anything after it on the same line as a comment (will not be ran as code)
+- * before a value dereferences it, meaning the value of that expression will be equal to the value at the stack address following the *. *'s can be chained, allowing for pointers to pointers to pointers to pointers to...
 ## Examples
 View the `examples` folder for example programs!
