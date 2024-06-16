@@ -838,6 +838,7 @@ enum Op {
     ListRemove { list: Arc<List>, index: LitExpr },
     ListSet { list: Arc<List>, index: LitExpr, val: LitExpr },
     BroadcastSync(BroadcastInput),
+    BroadcastAsync(BroadcastInput),
     If { cond: BoolExpr, then: Body },
     IfElse { cond: BoolExpr, then: Body, otherwise: Body },
     Ask,
@@ -930,6 +931,25 @@ impl Block {
 
                 BlockData {
                     op_code: "event_broadcastandwait",
+                    inputs: format!(r#""BROADCAST_INPUT": {}"#, input),
+                    fields: String::new(),
+                    deps,
+                }
+            },
+            Op::BroadcastAsync(input) => {
+                let (input, deps) = match input {
+                    BroadcastInput::Message(message) => (
+                        format!(r#"[1, [11, "{}", "{}"]]"#, message.name, message.uuid),
+                        Vec::default(),
+                    ),
+                    BroadcastInput::Expr(expr) => {
+                        let expr_data = expr.data(self.uuid);
+                        (expr_data.val, expr_data.deps)
+                    },
+                };
+
+                BlockData {
+                    op_code: "event_broadcast",
                     inputs: format!(r#""BROADCAST_INPUT": {}"#, input),
                     fields: String::new(),
                     deps,
@@ -1758,7 +1778,7 @@ fn compile(scopes: Vec<Scope>) -> Result<Compiled, ()> {
         // goto next chunk
         body.push(Block {
             uuid: Uuid::new_v4(),
-            op: Op::BroadcastSync(BroadcastInput::Expr(LitExpr {
+            op: Op::BroadcastAsync(BroadcastInput::Expr(LitExpr {
                 uuid: Uuid::new_v4(),
                 kind: LitExprKind::ListIndex {
                     list: Arc::clone(&stack),
