@@ -14,11 +14,12 @@ use zip_extensions::ZipWriterExtensions;
 #[derive(Debug)]
 enum Command {
     Out(AsmVal),
-    OutL,
+    OutLine,
     In { dest: Arc<AsmVal> },
     Copy { val: Arc<AsmVal>, dest: Arc<AsmVal> },
     Tag,
-    Jmp { tag: Arc<String> },
+    Jump { tag: Arc<String> },
+    JumpIf { cond: Arc<AsmVal>, tag: Arc<String> },
     Call { function: Arc<String>, args: Vec<Arc<AsmVal>> },
     CallIf { cond: Arc<AsmVal>, function: String, args: Vec<Arc<AsmVal>> },
     Add { left: Arc<AsmVal>, right: Arc<AsmVal>, dest: Arc<AsmVal> },
@@ -149,7 +150,7 @@ fn main() {
                 let msg = parse_asm_val(&mut parts, &scope.header.vars).expect("OUT needs message");
                 Command::Out(msg)
             },
-            "outl" => Command::OutL,
+            "outl" => Command::OutLine,
             "in" => {
                 let dest = parse_asm_val(&mut parts, &scope.header.vars).expect("IN needs dest");
                 Command::In { dest: Arc::new(dest) }
@@ -166,7 +167,18 @@ fn main() {
             },
             "jmp" => {
                 let tag = parse_tag_name(&mut parts).expect("JMP needs tag");
-                Command::Jmp { tag: Arc::new(tag.into()) }
+
+                new_chunk = Some(NewChunk { tag: None });
+
+                Command::Jump { tag: Arc::new(tag.into()) }
+            },
+            "jmpf" => {
+                let cond = parse_asm_val(&mut parts, &scope.header.vars).expect("JMPF needs cond");
+                let tag = parse_tag_name(&mut parts).expect("JMPF needs tag");
+
+                new_chunk = Some(NewChunk { tag: None });
+
+                Command::JumpIf { cond: Arc::new(cond), tag: Arc::new(tag.into()) }
             },
             "call" => {
                 let function = parse_function_name(&mut parts).expect("CALL needs function");
@@ -1218,7 +1230,7 @@ fn compile(scopes: Vec<Scope>) -> Result<Compiled, ()> {
                     ),
                 },
             }])),
-            Command::OutL => Ok(Vec::from([Op::ListPush {
+            Command::OutLine => Ok(Vec::from([Op::ListPush {
                 list: Arc::clone(&stdout),
                 val: LitExpr {
                     kind: LitExprKind::Literal(Arc::new(String::new())),
@@ -1236,7 +1248,7 @@ fn compile(scopes: Vec<Scope>) -> Result<Compiled, ()> {
                 val: LitExpr { kind: LitExprKind::from_asm(&val, &stack), uuid: Uuid::new_v4() },
             }])),
             Command::Tag => Ok(Vec::default()),
-            Command::Jmp { tag } => {
+            Command::Jump { tag } => {
                 let Some(chunk_uuid) = link.scope_tag_to_chunk_uuid.get(tag.as_ref()) else {
                     println!("ERR: {:?}", tag);
                     return Err(());
@@ -1254,6 +1266,67 @@ fn compile(scopes: Vec<Scope>) -> Result<Compiled, ()> {
                 let call_ops = broadcast_ops.into_iter().collect();
 
                 Ok(call_ops)
+            },
+            Command::JumpIf { cond, tag } => {
+                let Some(chunk_uuid) = link.scope_tag_to_chunk_uuid.get(tag.as_ref()) else {
+                    println!("ERR: {:?}", tag);
+                    return Err(());
+                };
+
+                let cond =
+                    LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::from_asm(&cond, &stack) };
+
+                let mut link_ops = Vec::default();
+                if let Some(next_message) = &link.next_message {
+                    link_ops.push(Op::ListPush {
+                        list: Arc::clone(&stack),
+                        val: LitExpr {
+                            uuid: Uuid::new_v4(),
+                            kind: LitExprKind::Literal(Arc::clone(&next_message.name)),
+                        },
+                    });
+                }
+
+                let message_name = create_message_name(&link.header.kind, *chunk_uuid, false);
+                let broadcast_ops = [Op::ListPush {
+                    list: Arc::clone(&stack),
+                    val: LitExpr {
+                        uuid: Uuid::new_v4(),
+                        kind: LitExprKind::Literal(Arc::new(message_name)),
+                    },
+                }];
+
+                let then_body = Body {
+                    blocks: broadcast_ops
+                        .into_iter()
+                        .map(|op| Block { uuid: Uuid::new_v4(), op })
+                        .collect(),
+                };
+
+                let else_body = Body {
+                    blocks: link_ops
+                        .into_iter()
+                        .map(|op| Block { uuid: Uuid::new_v4(), op })
+                        .collect(),
+                };
+
+                Ok(Vec::from([Op::IfElse {
+                    cond: BoolExpr {
+                        uuid: Uuid::new_v4(),
+                        kind: BoolExprKind::Not(Box::new(BoolExpr {
+                            uuid: Uuid::new_v4(),
+                            kind: BoolExprKind::Eq(
+                                Box::new(cond),
+                                Box::new(LitExpr {
+                                    uuid: Uuid::new_v4(),
+                                    kind: LitExprKind::Literal(Arc::new("0".into())),
+                                }),
+                            ),
+                        })),
+                    },
+                    then: then_body,
+                    otherwise: else_body,
+                }]))
             },
             Command::Call { function, args: fn_args } => {
                 let Some(message) = message_name_to_message.get(function.as_ref()) else {
