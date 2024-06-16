@@ -16,7 +16,8 @@ enum Command {
     Out(AsmVal),
     OutL,
     In { dest: Arc<AsmVal> },
-    Store { val: Arc<AsmVal>, addr: Arc<AsmVal> },
+    Copy { val: Arc<AsmVal>, dest: Arc<AsmVal> },
+    Call { function: String, args: Vec<Arc<AsmVal>> },
     CallIf { cond: Arc<AsmVal>, function: String, args: Vec<Arc<AsmVal>> },
     Add { left: Arc<AsmVal>, right: Arc<AsmVal>, dest: Arc<AsmVal> },
     Sub { left: Arc<AsmVal>, right: Arc<AsmVal>, dest: Arc<AsmVal> },
@@ -56,6 +57,11 @@ fn main() {
     println!("{}", out_path);
 
     let in_path = Path::new(&in_path);
+    assert!(
+        in_path.extension().and_then(|x| x.to_str()) == Some("ascm"),
+        "input file must be a .ascm file"
+    );
+
     let mut in_file = File::open(in_path).expect("input file should open");
     let input = {
         let mut buf = String::new();
@@ -69,16 +75,23 @@ fn main() {
     let mut def = None;
 
     for line in input.lines() {
-        if line.is_empty() {
+        let (command, _comment) = line
+            .split_once(';')
+            .map(|(command, comment)| (command, Some(comment)))
+            .unwrap_or((line, None));
+
+        if command.is_empty() {
             continue;
         }
 
-        let mut parts = line.split_whitespace();
+        println!("{}", command);
+
+        let mut parts = command.split_whitespace();
 
         let op = parts.next().expect("first part should be op").to_lowercase();
         let op_def_kind = match op.as_str() {
             "main" => Some(DefKind::Main),
-            "define" => {
+            "def" => {
                 let name = parts.next().expect("function must have name");
                 assert!(name.starts_with('@'), "function names must start with @");
                 Some(DefKind::Function { name: name.into() })
@@ -116,17 +129,26 @@ fn main() {
                 let dest = parse_asm_val(&mut parts, &def.vars).expect("IN needs dest");
                 Command::In { dest: Arc::new(dest) }
             },
-            "store" => {
-                let val = parse_asm_val(&mut parts, &def.vars).expect("STORE needs val");
-                let addr = parse_asm_val(&mut parts, &def.vars).expect("STORE needs addr");
-                Command::Store { val: Arc::new(val), addr: Arc::new(addr) }
+            "copy" => {
+                let val = parse_asm_val(&mut parts, &def.vars).expect("COPY needs val");
+                let dest = parse_asm_val(&mut parts, &def.vars).expect("COPY needs addr");
+                Command::Copy { val: Arc::new(val), dest: Arc::new(dest) }
             },
-            "callif" => {
-                let cond = parse_asm_val(&mut parts, &def.vars).expect("CALLIF invalid cond");
-                let function = parse_function_name(&mut parts).expect("CALLIF needs function");
+            "call" => {
+                let function = parse_function_name(&mut parts).expect("CALL needs function");
                 let mut args = Vec::default();
                 while !parts.is_empty() {
-                    let val = parse_asm_val(&mut parts, &def.vars).expect("CALLIF invalid arg");
+                    let val = parse_asm_val(&mut parts, &def.vars).expect("CALL invalid arg");
+                    args.push(Arc::new(val));
+                }
+                Command::Call { function: function.into(), args }
+            },
+            "callf" => {
+                let cond = parse_asm_val(&mut parts, &def.vars).expect("CALLF invalid cond");
+                let function = parse_function_name(&mut parts).expect("CALLF needs function");
+                let mut args = Vec::default();
+                while !parts.is_empty() {
+                    let val = parse_asm_val(&mut parts, &def.vars).expect("CALLF invalid arg");
                     args.push(Arc::new(val));
                 }
                 Command::CallIf { cond: Arc::new(cond), function: function.into(), args }
@@ -230,7 +252,7 @@ fn main() {
     let zip_writer = ZipWriter::new(out_zip_file);
     zip_writer.create_from_directory(&out_folder).expect("creating zip should succeed");
 
-    // let _ = fs::remove_dir_all(&out_folder);
+    let _ = fs::remove_dir_all(&out_folder);
 }
 
 #[derive(Debug)]
@@ -1078,13 +1100,33 @@ fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
                 index: LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::from_asm(&dest, &stack) },
                 val: LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::Answer },
             }])),
-            Command::Store { val, addr } => Ok(Vec::from([Op::ListSet {
+            Command::Copy { val, dest: addr } => Ok(Vec::from([Op::ListSet {
                 list: Arc::clone(&stack),
                 index: LitExpr { kind: LitExprKind::from_asm(&addr, &stack), uuid: Uuid::new_v4() },
                 val: LitExpr { kind: LitExprKind::from_asm(&val, &stack), uuid: Uuid::new_v4() },
             }])),
+            Command::Call { function, args: fn_args } => {
+                let Some(message) = message_name_to_message.get(&function) else {
+                    println!("ERR: {:?}", function);
+                    return Err(());
+                };
+
+                let arg_ops = fn_args.into_iter().map(|arg| Op::ListPush {
+                    list: Arc::clone(&args),
+                    val: LitExpr {
+                        kind: LitExprKind::from_asm(&arg, &stack),
+                        uuid: Uuid::new_v4(),
+                    },
+                });
+
+                let broadcast_op = Op::BroadcastSync(Arc::clone(message));
+                let call_ops = arg_ops.chain([broadcast_op]).collect();
+
+                Ok(call_ops)
+            },
             Command::CallIf { cond, function, args: fn_args } => {
                 let Some(message) = message_name_to_message.get(&function) else {
+                    println!("ERR: {:?}", function);
                     return Err(());
                 };
 
@@ -1455,7 +1497,7 @@ fn export(compiled: Compiled) -> Result<String, ()> {
             "meta": {{
                 "semver": "3.0.0",
                 "vm": "2.3.4",
-                "agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+                "agent": "ScratchASM/0.1.0"
             }}
         }}
     "#,

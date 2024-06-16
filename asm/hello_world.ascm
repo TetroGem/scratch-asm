@@ -1,9 +1,0 @@
-MAIN $a $b $c
-OUT "Hello world!"
-STORE "Goodbye!" $a
-STORE "Hello!" $b
-OUT *$b
-OUT *$a
-STORE $a $c
-STORE "Goodbye again!" *$c
-OUT *$a

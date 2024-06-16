@@ -1,0 +1,12 @@
+MAIN $a $b $c
+OUT "Hello world!"
+OUTL
+COPY "Goodbye!" $a
+COPY "Hello!" $b
+OUT *$b
+OUTL
+OUT *$a
+OUTL
+COPY $a $c
+COPY "Goodbye again!" *$c
+OUT *$a

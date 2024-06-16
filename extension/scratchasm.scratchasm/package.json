@@ -1,0 +1,34 @@
+{
+  "name": "scratchasm",
+  "displayName": "scratchasm",
+  "description": "VSCode Support for ScratchASM",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "scratchasm",
+        "aliases": [
+          "ScratchASM",
+          "scratchasm"
+        ],
+        "extensions": [
+          ".ascm"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "scratchasm",
+        "scopeName": "source.ascm",
+        "path": "./syntaxes/scratchasm.tmLanguage.json"
+      }
+    ]
+  }
+}

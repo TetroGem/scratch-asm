@@ -1,0 +1,62 @@
+;;;;;
+;;; MAIN
+;;; $iters: int = number of fizzbuzz iterations to perform
+;;;;;
+MAIN $iters
+OUT "Enter the number of FizzBuzz iterations to perform: " ; get user input for number of iters
+IN $iters
+OUT *$iters
+OUTL
+
+CALL @fizzbuzz "1" *$iters ; call fizzbuzz loop starting at 1 for $iters iterations
+
+;;;;;
+;;; @fizzbuzz
+;;; $num: int = current number to perform fizzbuzz operation on
+;;; $iters: int = total number of iterations to perform
+;;;;;
+;;; $_cond: bool = is this number over the max iters? guard condition for looping
+;;;;;
+DEF @fizzbuzz $num $iters $_cond
+;; check if over max number of iters
+COPY *$iters $_cond ; copy iters value into $_cond
+ADD *$_cond "1" $_cond ; add 1 to number of iters (first num over max)
+LT *$num *$_cond $_cond ; check if num is less than first invalid num
+CALLF *$_cond @print_fizzbuzz *$num ; if condition is met, print fizzbuzz for this number
+
+ADD *$num "1" $num ; increment number
+CALLF *$_cond @fizzbuzz *$num *$iters ; if condition was met for printing, continue to next iter
+
+;;;;;
+;;; @print_fizzbuzz = prints the fizzbuzz string for the given number
+;;; $num: int = the number to print fizzbuzz for
+;;;;;
+;;; $_fizz: bool = is this num fizz?
+;;; $_buzz: bool = is this num buzz?
+;;; $_none: bool = is this num neither?
+;;;;;
+DEF @print_fizzbuzz $num $_fizz $_buzz $_none
+
+; check if num % 3 == 0 (fizz)
+MOD *$num "3" $_fizz
+EQ *$_fizz "0" $_fizz
+
+; check if num % 5 == 0 (buzz)
+MOD *$num "5" $_buzz
+EQ *$_buzz "0" $_buzz
+
+; if sumof bools is 0, both are false (0 + 0 = 0)
+ADD *$_fizz *$_buzz $_none
+EQ *$_none "0" $_none
+
+CALLF *$_fizz @print "Fizz" ; print fizz if fizz
+CALLF *$_buzz @print "Buzz" ; same for buzz
+CALLF *$_none @print *$num ; print just the number if neither were true
+OUTL ; end line for number
+
+;;;;;
+;;; @print = prints the given value (for use with conditionals)
+;;; $val = the value to print
+;;;;;
+DEF @print $val
+OUT *$val

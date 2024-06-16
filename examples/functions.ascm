@@ -2,6 +2,6 @@ MAIN
 CALL @function
 OUT "World!"
 
-DEFINE @function $a
-STORE "Hello" $a
+DEF @function $a
+COPY "Hello" $a
 OUT *$a
