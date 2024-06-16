@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::mem::{replace, take};
 use std::path::Path;
 use std::sync::Arc;
-use std::{env, fs, os};
+use std::{env, fs};
 
 use itertools::Itertools;
 use uuid::Uuid;
@@ -13,11 +13,15 @@ use zip_extensions::ZipWriterExtensions;
 
 #[derive(Debug)]
 enum Command {
+    Clear,
     Out(AsmVal),
-    OutL,
+    OutLine,
     In { dest: Arc<AsmVal> },
     Copy { val: Arc<AsmVal>, dest: Arc<AsmVal> },
-    Call { function: String, args: Vec<Arc<AsmVal>> },
+    Tag,
+    Jump { tag: Arc<String> },
+    JumpIf { cond: Arc<AsmVal>, tag: Arc<String> },
+    Call { function: Arc<String>, args: Vec<Arc<AsmVal>> },
     CallIf { cond: Arc<AsmVal>, function: String, args: Vec<Arc<AsmVal>> },
     Add { left: Arc<AsmVal>, right: Arc<AsmVal>, dest: Arc<AsmVal> },
     Sub { left: Arc<AsmVal>, right: Arc<AsmVal>, dest: Arc<AsmVal> },
@@ -27,6 +31,7 @@ enum Command {
     Eq { left: Arc<AsmVal>, right: Arc<AsmVal>, dest: Arc<AsmVal> },
     Gt { left: Arc<AsmVal>, right: Arc<AsmVal>, dest: Arc<AsmVal> },
     Lt { left: Arc<AsmVal>, right: Arc<AsmVal>, dest: Arc<AsmVal> },
+    Rand { min: Arc<AsmVal>, max: Arc<AsmVal>, dest: Arc<AsmVal> },
 }
 
 #[derive(Debug)]
@@ -36,16 +41,28 @@ struct Var {
 }
 
 #[derive(Debug)]
-enum DefKind {
-    Main,
-    Function { name: String },
+struct ScopeHeader {
+    kind: ScopeKind,
+    vars: Vec<Var>,
 }
 
 #[derive(Debug)]
-struct Def {
-    kind: DefKind,
+enum ScopeKind {
+    Main,
+    Fn { name: String },
+}
+
+#[derive(Debug)]
+struct Scope {
+    header: Arc<ScopeHeader>,
+    chunks: Vec<Chunk>,
+    tag_to_chunk_uuid: HashMap<Arc<String>, Uuid>,
+}
+
+#[derive(Debug)]
+struct Chunk {
+    uuid: Uuid,
     body: Vec<Command>,
-    vars: Vec<Var>,
 }
 
 fn main() {
@@ -71,8 +88,8 @@ fn main() {
 
     println!("{}", input);
 
-    let mut defs: Vec<Def> = Vec::default();
-    let mut def = None;
+    let mut scopes: Vec<Scope> = Vec::default();
+    let mut scope = None;
 
     for line in input.lines() {
         let (command, _comment) = line
@@ -89,19 +106,19 @@ fn main() {
         let mut parts = command.split_whitespace();
 
         let op = parts.next().expect("first part should be op").to_lowercase();
-        let op_def_kind = match op.as_str() {
-            "main" => Some(DefKind::Main),
-            "def" => {
-                let name = parts.next().expect("function must have name");
-                assert!(name.starts_with('@'), "function names must start with @");
-                Some(DefKind::Function { name: name.into() })
+        let scope_kind = match op.as_str() {
+            "main" => Some(ScopeKind::Main),
+            "fn" => {
+                let name = parts.next().expect("scope must have name");
+                assert!(name.starts_with('@'), "scope names must start with @");
+                Some(ScopeKind::Fn { name: name.into() })
             },
             _ => None,
         };
 
-        if let Some(op_def_kind) = op_def_kind {
-            if let Some(last_def) = def.take() {
-                defs.push(last_def);
+        if let Some(scope_kind) = scope_kind {
+            if let Some(last_scope) = scope.take() {
+                scopes.push(last_scope);
             }
 
             let vars = parts
@@ -112,108 +129,164 @@ fn main() {
                 })
                 .collect_vec();
 
-            def = Some(Def { kind: op_def_kind, body: Vec::default(), vars });
+            scope = Some(Scope {
+                header: Arc::new(ScopeHeader { kind: scope_kind, vars }),
+                chunks: Vec::from([Chunk { uuid: Uuid::new_v4(), body: Vec::default() }]),
+                tag_to_chunk_uuid: HashMap::default(),
+            });
             continue;
         }
 
-        let Some(def) = &mut def else { panic!("no def before commands") };
+        let Some(scope) = &mut scope else { panic!("commands are not in a scope") };
 
         let mut parts = parts.collect();
+
+        struct NewChunk {
+            tag: Option<Arc<String>>,
+        }
+
+        let mut new_chunk = None;
+
         let command = match op.as_str() {
+            "clear" => Command::Clear,
             "out" => {
-                let msg = parse_asm_val(&mut parts, &def.vars).expect("OUT needs message");
+                let msg = parse_asm_val(&mut parts, &scope.header.vars).expect("OUT needs message");
                 Command::Out(msg)
             },
-            "outl" => Command::OutL,
+            "outl" => Command::OutLine,
             "in" => {
-                let dest = parse_asm_val(&mut parts, &def.vars).expect("IN needs dest");
+                let dest = parse_asm_val(&mut parts, &scope.header.vars).expect("IN needs dest");
                 Command::In { dest: Arc::new(dest) }
             },
             "copy" => {
-                let val = parse_asm_val(&mut parts, &def.vars).expect("COPY needs val");
-                let dest = parse_asm_val(&mut parts, &def.vars).expect("COPY needs addr");
+                let val = parse_asm_val(&mut parts, &scope.header.vars).expect("COPY needs val");
+                let dest = parse_asm_val(&mut parts, &scope.header.vars).expect("COPY needs addr");
                 Command::Copy { val: Arc::new(val), dest: Arc::new(dest) }
+            },
+            "tag" => {
+                let name = parse_tag_name(&mut parts).expect("TAG needs name");
+                new_chunk = Some(NewChunk { tag: Some(Arc::new(name.to_string())) });
+                Command::Tag
+            },
+            "jmp" => {
+                let tag = parse_tag_name(&mut parts).expect("JMP needs tag");
+
+                new_chunk = Some(NewChunk { tag: None });
+
+                Command::Jump { tag: Arc::new(tag.into()) }
+            },
+            "jmpf" => {
+                let cond = parse_asm_val(&mut parts, &scope.header.vars).expect("JMPF needs cond");
+                let tag = parse_tag_name(&mut parts).expect("JMPF needs tag");
+
+                new_chunk = Some(NewChunk { tag: None });
+
+                Command::JumpIf { cond: Arc::new(cond), tag: Arc::new(tag.into()) }
             },
             "call" => {
                 let function = parse_function_name(&mut parts).expect("CALL needs function");
                 let mut args = Vec::default();
                 while !parts.is_empty() {
-                    let val = parse_asm_val(&mut parts, &def.vars).expect("CALL invalid arg");
+                    let val =
+                        parse_asm_val(&mut parts, &scope.header.vars).expect("CALL invalid arg");
                     args.push(Arc::new(val));
                 }
-                Command::Call { function: function.into(), args }
+
+                new_chunk = Some(NewChunk { tag: None });
+
+                Command::Call { function: Arc::new(function.into()), args }
             },
             "callf" => {
-                let cond = parse_asm_val(&mut parts, &def.vars).expect("CALLF invalid cond");
+                let cond =
+                    parse_asm_val(&mut parts, &scope.header.vars).expect("CALLF invalid cond");
                 let function = parse_function_name(&mut parts).expect("CALLF needs function");
                 let mut args = Vec::default();
                 while !parts.is_empty() {
-                    let val = parse_asm_val(&mut parts, &def.vars).expect("CALLF invalid arg");
+                    let val =
+                        parse_asm_val(&mut parts, &scope.header.vars).expect("CALLF invalid arg");
                     args.push(Arc::new(val));
                 }
+
+                new_chunk = Some(NewChunk { tag: None });
+
                 Command::CallIf { cond: Arc::new(cond), function: function.into(), args }
             },
             "mod" => {
-                let left = parse_asm_val(&mut parts, &def.vars).expect("MOD needs left");
-                let right = parse_asm_val(&mut parts, &def.vars).expect("MOD needs right");
-                let dest = parse_asm_val(&mut parts, &def.vars).expect("MOD needs dest");
+                let left = parse_asm_val(&mut parts, &scope.header.vars).expect("MOD needs left");
+                let right = parse_asm_val(&mut parts, &scope.header.vars).expect("MOD needs right");
+                let dest = parse_asm_val(&mut parts, &scope.header.vars).expect("MOD needs dest");
                 Command::Mod { left: Arc::new(left), right: Arc::new(right), dest: Arc::new(dest) }
             },
             "eq" => {
-                let left = parse_asm_val(&mut parts, &def.vars).expect("MOD needs left");
-                let right = parse_asm_val(&mut parts, &def.vars).expect("MOD needs right");
-                let dest = parse_asm_val(&mut parts, &def.vars).expect("MOD needs dest");
+                let left = parse_asm_val(&mut parts, &scope.header.vars).expect("MOD needs left");
+                let right = parse_asm_val(&mut parts, &scope.header.vars).expect("MOD needs right");
+                let dest = parse_asm_val(&mut parts, &scope.header.vars).expect("MOD needs dest");
                 Command::Eq { left: Arc::new(left), right: Arc::new(right), dest: Arc::new(dest) }
             },
             "gt" => {
-                let left = parse_asm_val(&mut parts, &def.vars).expect("MOD needs left");
-                let right = parse_asm_val(&mut parts, &def.vars).expect("MOD needs right");
-                let dest = parse_asm_val(&mut parts, &def.vars).expect("MOD needs dest");
+                let left = parse_asm_val(&mut parts, &scope.header.vars).expect("MOD needs left");
+                let right = parse_asm_val(&mut parts, &scope.header.vars).expect("MOD needs right");
+                let dest = parse_asm_val(&mut parts, &scope.header.vars).expect("MOD needs dest");
                 Command::Gt { left: Arc::new(left), right: Arc::new(right), dest: Arc::new(dest) }
             },
             "lt" => {
-                let left = parse_asm_val(&mut parts, &def.vars).expect("MOD needs left");
-                let right = parse_asm_val(&mut parts, &def.vars).expect("MOD needs right");
-                let dest = parse_asm_val(&mut parts, &def.vars).expect("MOD needs dest");
+                let left = parse_asm_val(&mut parts, &scope.header.vars).expect("MOD needs left");
+                let right = parse_asm_val(&mut parts, &scope.header.vars).expect("MOD needs right");
+                let dest = parse_asm_val(&mut parts, &scope.header.vars).expect("MOD needs dest");
                 Command::Lt { left: Arc::new(left), right: Arc::new(right), dest: Arc::new(dest) }
             },
             "add" => {
-                let left = parse_asm_val(&mut parts, &def.vars).expect("ADD needs left");
-                let right = parse_asm_val(&mut parts, &def.vars).expect("ADD needs right");
-                let dest = parse_asm_val(&mut parts, &def.vars).expect("ADD needs dest");
+                let left = parse_asm_val(&mut parts, &scope.header.vars).expect("ADD needs left");
+                let right = parse_asm_val(&mut parts, &scope.header.vars).expect("ADD needs right");
+                let dest = parse_asm_val(&mut parts, &scope.header.vars).expect("ADD needs dest");
                 Command::Add { left: Arc::new(left), right: Arc::new(right), dest: Arc::new(dest) }
             },
             "sub" => {
-                let left = parse_asm_val(&mut parts, &def.vars).expect("SUB needs left");
-                let right = parse_asm_val(&mut parts, &def.vars).expect("SUB needs right");
-                let dest = parse_asm_val(&mut parts, &def.vars).expect("SUB needs dest");
+                let left = parse_asm_val(&mut parts, &scope.header.vars).expect("SUB needs left");
+                let right = parse_asm_val(&mut parts, &scope.header.vars).expect("SUB needs right");
+                let dest = parse_asm_val(&mut parts, &scope.header.vars).expect("SUB needs dest");
                 Command::Sub { left: Arc::new(left), right: Arc::new(right), dest: Arc::new(dest) }
             },
             "mul" => {
-                let left = parse_asm_val(&mut parts, &def.vars).expect("MUL needs left");
-                let right = parse_asm_val(&mut parts, &def.vars).expect("MUL needs right");
-                let dest = parse_asm_val(&mut parts, &def.vars).expect("MUL needs dest");
+                let left = parse_asm_val(&mut parts, &scope.header.vars).expect("MUL needs left");
+                let right = parse_asm_val(&mut parts, &scope.header.vars).expect("MUL needs right");
+                let dest = parse_asm_val(&mut parts, &scope.header.vars).expect("MUL needs dest");
                 Command::Mul { left: Arc::new(left), right: Arc::new(right), dest: Arc::new(dest) }
             },
             "div" => {
-                let left = parse_asm_val(&mut parts, &def.vars).expect("DIV needs left");
-                let right = parse_asm_val(&mut parts, &def.vars).expect("DIV needs right");
-                let dest = parse_asm_val(&mut parts, &def.vars).expect("DIV needs dest");
+                let left = parse_asm_val(&mut parts, &scope.header.vars).expect("DIV needs left");
+                let right = parse_asm_val(&mut parts, &scope.header.vars).expect("DIV needs right");
+                let dest = parse_asm_val(&mut parts, &scope.header.vars).expect("DIV needs dest");
                 Command::Div { left: Arc::new(left), right: Arc::new(right), dest: Arc::new(dest) }
+            },
+            "rand" => {
+                let min = parse_asm_val(&mut parts, &scope.header.vars).expect("DIV needs left");
+                let max = parse_asm_val(&mut parts, &scope.header.vars).expect("DIV needs right");
+                let dest = parse_asm_val(&mut parts, &scope.header.vars).expect("DIV needs dest");
+                Command::Rand { min: Arc::new(min), max: Arc::new(max), dest: Arc::new(dest) }
             },
             op => panic!("unknown op: {}", op),
         };
 
-        def.body.push(command);
+        let chunk = scope.chunks.last_mut().expect("scope should have a chunk");
+        chunk.body.push(command);
+
+        if let Some(new_chunk) = new_chunk {
+            let chunk = Chunk { uuid: Uuid::new_v4(), body: Vec::default() };
+            if let Some(tag) = new_chunk.tag {
+                scope.tag_to_chunk_uuid.insert(tag, chunk.uuid);
+            }
+            scope.chunks.push(chunk);
+        }
     }
 
-    if let Some(def) = def {
-        defs.push(def);
+    if let Some(def) = scope {
+        scopes.push(def);
     }
 
-    println!("{:?}", defs);
+    println!("{:?}", scopes);
 
-    let compiled = compile(defs).expect("compilation should succeed");
+    let compiled = compile(scopes).expect("compilation should succeed");
 
     println!("{:?}", compiled);
 
@@ -334,6 +407,14 @@ fn parse_function_name<'a>(parts: &mut VecDeque<&'a str>) -> Result<&'a str, ()>
     Ok(name)
 }
 
+fn parse_tag_name<'a>(parts: &mut VecDeque<&'a str>) -> Result<&'a str, ()> {
+    let Some(name) = parts.pop_front() else { return Err(()) };
+    if !name.starts_with('#') {
+        return Err(());
+    }
+    Ok(name)
+}
+
 #[derive(Debug)]
 struct List {
     uuid: Uuid,
@@ -352,6 +433,7 @@ enum LitExprKind {
     Mod(Box<LitExpr>, Box<LitExpr>),
     Answer,
     Join(Box<LitExpr>, Box<LitExpr>),
+    Rand(Box<LitExpr>, Box<LitExpr>),
 }
 
 impl LitExprKind {
@@ -706,6 +788,31 @@ impl LitExpr {
 
                 ExprData { val: format!(r#"[3, "{}", [7, ""]]"#, self.uuid), deps }
             },
+            LitExprKind::Rand(min, max) => {
+                let min_data = min.data(self.uuid);
+                let max_data = max.data(self.uuid);
+
+                let block = BlockJsonMaker {
+                    uuid: self.uuid,
+                    op_code: "operator_random",
+                    next: None,
+                    prev: Some(parent),
+                    inputs: format!(
+                        r#"
+                        "FROM": {},
+                        "TO": {}
+                    "#,
+                        min_data.val, max_data.val
+                    ),
+                    fields: String::new(),
+                };
+
+                let mut deps = Vec::from([block.to_json()]);
+                deps.extend(min_data.deps);
+                deps.extend(max_data.deps);
+
+                ExprData { val: format!(r#"[3, "{}", [7, ""]]"#, self.uuid), deps }
+            },
         }
     }
 }
@@ -713,7 +820,13 @@ impl LitExpr {
 #[derive(Debug)]
 struct Message {
     uuid: Uuid,
-    name: String,
+    name: Arc<String>,
+}
+
+#[derive(Debug)]
+enum BroadcastInput {
+    Message(Arc<Message>),
+    Expr(LitExpr),
 }
 
 #[derive(Debug)]
@@ -724,7 +837,8 @@ enum Op {
     ListClear { list: Arc<List> },
     ListRemove { list: Arc<List>, index: LitExpr },
     ListSet { list: Arc<List>, index: LitExpr, val: LitExpr },
-    BroadcastSync(Arc<Message>),
+    BroadcastSync(BroadcastInput),
+    BroadcastAsync(BroadcastInput),
     If { cond: BoolExpr, then: Body },
     IfElse { cond: BoolExpr, then: Body, otherwise: Body },
     Ask,
@@ -803,14 +917,43 @@ impl Block {
                     deps,
                 }
             },
-            Op::BroadcastSync(message) => BlockData {
-                op_code: "event_broadcastandwait",
-                inputs: format!(
-                    r#""BROADCAST_INPUT": [1, [11, "{}", "{}"]]"#,
-                    message.name, message.uuid
-                ),
-                fields: String::new(),
-                deps: Vec::default(),
+            Op::BroadcastSync(input) => {
+                let (input, deps) = match input {
+                    BroadcastInput::Message(message) => (
+                        format!(r#"[1, [11, "{}", "{}"]]"#, message.name, message.uuid),
+                        Vec::default(),
+                    ),
+                    BroadcastInput::Expr(expr) => {
+                        let expr_data = expr.data(self.uuid);
+                        (expr_data.val, expr_data.deps)
+                    },
+                };
+
+                BlockData {
+                    op_code: "event_broadcastandwait",
+                    inputs: format!(r#""BROADCAST_INPUT": {}"#, input),
+                    fields: String::new(),
+                    deps,
+                }
+            },
+            Op::BroadcastAsync(input) => {
+                let (input, deps) = match input {
+                    BroadcastInput::Message(message) => (
+                        format!(r#"[1, [11, "{}", "{}"]]"#, message.name, message.uuid),
+                        Vec::default(),
+                    ),
+                    BroadcastInput::Expr(expr) => {
+                        let expr_data = expr.data(self.uuid);
+                        (expr_data.val, expr_data.deps)
+                    },
+                };
+
+                BlockData {
+                    op_code: "event_broadcast",
+                    inputs: format!(r#""BROADCAST_INPUT": {}"#, input),
+                    fields: String::new(),
+                    deps,
+                }
             },
             Op::If { cond, then } => {
                 let cond_data = cond.data(self.uuid);
@@ -979,89 +1122,152 @@ struct Compiled {
     message_name_to_message: HashMap<String, Arc<Message>>,
 }
 
-fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
+fn compile(scopes: Vec<Scope>) -> Result<Compiled, ()> {
     let stdout = Arc::new(List { uuid: Uuid::new_v4(), name: "::stdout".into() });
     let stack = Arc::new(List { uuid: Uuid::new_v4(), name: "::stack".into() });
     let args = Arc::new(List { uuid: Uuid::new_v4(), name: "::args".into() });
 
     let mut message_name_to_message = HashMap::new();
 
-    // create messages for functions
-    for def in &defs {
-        match &def.kind {
-            DefKind::Main => {},
-            DefKind::Function { name } => {
-                let message = Arc::new(Message { uuid: Uuid::new_v4(), name: name.into() });
-                message_name_to_message.insert(message.name.clone(), Arc::clone(&message));
-            },
-        };
+    struct LinkedChunk {
+        header: Arc<ScopeHeader>,
+        scope_tag_to_chunk_uuid: Arc<HashMap<Arc<String>, Uuid>>,
+        chunk: Chunk,
+        message: Arc<Message>,
+        next_message: Option<Arc<Message>>,
+        first_in_scope: bool,
     }
 
-    let chains = defs.into_iter().map(|def| {
-        let root_op = match &def.kind {
-            DefKind::Main => Op::OnFlag,
-            DefKind::Function { name } => {
-                let Some(message) = message_name_to_message.get(name) else { return Err(()) };
-                Op::OnMessage(Arc::clone(message))
-            },
+    let mut linked_chunks = Vec::default();
+
+    fn create_message_name(kind: &ScopeKind, chunk_uuid: Uuid, first_in_scope: bool) -> String {
+        let scope_name = match kind {
+            ScopeKind::Main => "::main",
+            ScopeKind::Fn { name } => name.as_str(),
+        };
+
+        match first_in_scope {
+            true => scope_name.into(),
+            false => format!("{}@{}", scope_name, chunk_uuid),
+        }
+    }
+
+    // create messages for chunks
+    for scope in scopes {
+        let scope_tag_to_chunk_uuid = Arc::new(scope.tag_to_chunk_uuid);
+        let mut next_message = None;
+        for (i, chunk) in scope.chunks.into_iter().enumerate().rev() {
+            let first_in_scope = i == 0;
+
+            let message_name = create_message_name(&scope.header.kind, chunk.uuid, first_in_scope);
+            let message = Arc::new(Message { uuid: Uuid::new_v4(), name: Arc::new(message_name) });
+            message_name_to_message.insert(message.name.as_ref().clone(), Arc::clone(&message));
+
+            linked_chunks.push(LinkedChunk {
+                header: Arc::clone(&scope.header),
+                scope_tag_to_chunk_uuid: Arc::clone(&scope_tag_to_chunk_uuid),
+                chunk,
+                message: Arc::clone(&message),
+                next_message: next_message.take(),
+                first_in_scope,
+            });
+
+            next_message = Some(message);
+        }
+    }
+
+    let chains = linked_chunks.into_iter().map(|link| {
+        let root_op = match link.header.kind {
+            ScopeKind::Main if link.first_in_scope => Op::OnFlag,
+            _ => Op::OnMessage(Arc::clone(&link.message)),
         };
 
         let head = Root { block: Block { op: root_op, uuid: Uuid::new_v4() }, x: 0., y: 0. };
 
         let mut body = Vec::default();
 
-        if let DefKind::Main = def.kind {
-            body.push(Block {
-                uuid: Uuid::new_v4(),
-                op: Op::ListClear { list: Arc::clone(&stdout) },
-            });
+        if let ScopeKind::Main = link.header.kind {
+            if link.first_in_scope {
+                body.push(Block {
+                    uuid: Uuid::new_v4(),
+                    op: Op::ListClear { list: Arc::clone(&stdout) },
+                });
 
-            body.push(Block {
-                uuid: Uuid::new_v4(),
-                op: Op::ListClear { list: Arc::clone(&stack) },
-            });
+                body.push(Block {
+                    uuid: Uuid::new_v4(),
+                    op: Op::ListClear { list: Arc::clone(&stack) },
+                });
 
+                body.push(Block {
+                    uuid: Uuid::new_v4(),
+                    op: Op::ListClear { list: Arc::clone(&args) },
+                });
+
+                body.push(Block {
+                    uuid: Uuid::new_v4(),
+                    op: Op::ListPush {
+                        list: Arc::clone(&stdout),
+                        val: LitExpr {
+                            uuid: Uuid::new_v4(),
+                            kind: LitExprKind::Literal(Arc::new(String::new())),
+                        },
+                    },
+                });
+            }
+        }
+
+        // remove goto instruction from stack
+        body.push(Block {
+            uuid: Uuid::new_v4(),
+            op: Op::ListRemove {
+                list: Arc::clone(&stack),
+                index: LitExpr {
+                    uuid: Uuid::new_v4(),
+                    kind: LitExprKind::ListLen(Arc::clone(&stack)),
+                },
+            },
+        });
+
+        // var alloc / arg retrieval
+        if link.first_in_scope {
+            for var in link.header.vars.iter().rev() {
+                body.push(Block {
+                    uuid: Uuid::new_v4(),
+                    op: Op::ListPush {
+                        list: Arc::clone(&stack),
+                        val: LitExpr {
+                            uuid: Uuid::new_v4(),
+                            kind: LitExprKind::ListIndex {
+                                list: Arc::clone(&args),
+                                index: Box::new(LitExpr {
+                                    uuid: Uuid::new_v4(),
+                                    kind: LitExprKind::Literal(Arc::new(
+                                        (var.offset + 1).to_string(),
+                                    )),
+                                }),
+                            },
+                        },
+                    },
+                });
+            }
+
+            // clear args after use
             body.push(Block {
                 uuid: Uuid::new_v4(),
                 op: Op::ListClear { list: Arc::clone(&args) },
             });
+        }
 
-            body.push(Block {
-                uuid: Uuid::new_v4(),
-                op: Op::ListPush {
+        let blocks = link.chunk.body.into_iter().map(|command| match command {
+            Command::Clear => {
+                Ok(Vec::from([Op::ListClear { list: Arc::clone(&stdout) }, Op::ListPush {
                     list: Arc::clone(&stdout),
                     val: LitExpr {
                         uuid: Uuid::new_v4(),
                         kind: LitExprKind::Literal(Arc::new(String::new())),
                     },
-                },
-            });
-        }
-
-        // var alloc / arg retrieval
-        for var in def.vars.iter().rev() {
-            body.push(Block {
-                uuid: Uuid::new_v4(),
-                op: Op::ListPush {
-                    list: Arc::clone(&stack),
-                    val: LitExpr {
-                        uuid: Uuid::new_v4(),
-                        kind: LitExprKind::ListIndex {
-                            list: Arc::clone(&args),
-                            index: Box::new(LitExpr {
-                                uuid: Uuid::new_v4(),
-                                kind: LitExprKind::Literal(Arc::new((var.offset + 1).to_string())),
-                            }),
-                        },
-                    },
-                },
-            });
-        }
-
-        // clear args after use
-        body.push(Block { uuid: Uuid::new_v4(), op: Op::ListClear { list: Arc::clone(&args) } });
-
-        let blocks = def.body.into_iter().map(|command| match command {
+                }]))
+            },
             Command::Out(msg) => Ok(Vec::from([Op::ListSet {
                 list: Arc::clone(&stdout),
                 index: LitExpr {
@@ -1088,7 +1294,7 @@ fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
                     ),
                 },
             }])),
-            Command::OutL => Ok(Vec::from([Op::ListPush {
+            Command::OutLine => Ok(Vec::from([Op::ListPush {
                 list: Arc::clone(&stdout),
                 val: LitExpr {
                     kind: LitExprKind::Literal(Arc::new(String::new())),
@@ -1105,50 +1311,83 @@ fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
                 index: LitExpr { kind: LitExprKind::from_asm(&addr, &stack), uuid: Uuid::new_v4() },
                 val: LitExpr { kind: LitExprKind::from_asm(&val, &stack), uuid: Uuid::new_v4() },
             }])),
-            Command::Call { function, args: fn_args } => {
-                let Some(message) = message_name_to_message.get(&function) else {
-                    println!("ERR: {:?}", function);
+            Command::Tag => {
+                let mut link_ops = Vec::default();
+                if let Some(next_message) = &link.next_message {
+                    link_ops.push(Op::ListPush {
+                        list: Arc::clone(&stack),
+                        val: LitExpr {
+                            uuid: Uuid::new_v4(),
+                            kind: LitExprKind::Literal(Arc::clone(&next_message.name)),
+                        },
+                    });
+                }
+
+                Ok(link_ops)
+            },
+            Command::Jump { tag } => {
+                let Some(chunk_uuid) = link.scope_tag_to_chunk_uuid.get(tag.as_ref()) else {
+                    println!("ERR: {:?}", tag);
                     return Err(());
                 };
 
-                let arg_ops = fn_args.into_iter().map(|arg| Op::ListPush {
-                    list: Arc::clone(&args),
+                let message_name = create_message_name(&link.header.kind, *chunk_uuid, false);
+                let broadcast_ops = [Op::ListPush {
+                    list: Arc::clone(&stack),
                     val: LitExpr {
-                        kind: LitExprKind::from_asm(&arg, &stack),
                         uuid: Uuid::new_v4(),
+                        kind: LitExprKind::Literal(Arc::new(message_name)),
                     },
-                });
+                }];
 
-                let broadcast_op = Op::BroadcastSync(Arc::clone(message));
-                let call_ops = arg_ops.chain([broadcast_op]).collect();
+                let call_ops = broadcast_ops.into_iter().collect();
 
                 Ok(call_ops)
             },
-            Command::CallIf { cond, function, args: fn_args } => {
-                let Some(message) = message_name_to_message.get(&function) else {
-                    println!("ERR: {:?}", function);
+            Command::JumpIf { cond, tag } => {
+                let Some(chunk_uuid) = link.scope_tag_to_chunk_uuid.get(tag.as_ref()) else {
+                    println!("ERR: {:?}", tag);
                     return Err(());
                 };
 
                 let cond =
                     LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::from_asm(&cond, &stack) };
 
-                let arg_commands = fn_args.into_iter().map(|arg| Op::ListPush {
-                    list: Arc::clone(&args),
+                let mut link_ops = Vec::default();
+                if let Some(next_message) = &link.next_message {
+                    link_ops.push(Op::ListPush {
+                        list: Arc::clone(&stack),
+                        val: LitExpr {
+                            uuid: Uuid::new_v4(),
+                            kind: LitExprKind::Literal(Arc::clone(&next_message.name)),
+                        },
+                    });
+                }
+
+                let message_name = create_message_name(&link.header.kind, *chunk_uuid, false);
+                let broadcast_ops = [Op::ListPush {
+                    list: Arc::clone(&stack),
                     val: LitExpr {
-                        kind: LitExprKind::from_asm(&arg, &stack),
                         uuid: Uuid::new_v4(),
+                        kind: LitExprKind::Literal(Arc::new(message_name)),
                     },
-                });
+                }];
 
-                let broadcast_command = Op::BroadcastSync(Arc::clone(message));
-                let call_blocks = arg_commands
-                    .chain([broadcast_command])
-                    .map(|op| Block { uuid: Uuid::new_v4(), op })
-                    .collect();
-                let call_body = Body { blocks: call_blocks };
+                let then_body = Body {
+                    blocks: broadcast_ops
+                        .into_iter()
+                        .map(|op| Block { uuid: Uuid::new_v4(), op })
+                        .collect(),
+                };
 
-                Ok(Vec::from([Op::If {
+                let else_body = Body {
+                    blocks: link_ops
+                        .into_iter()
+                        .map(|op| Block { uuid: Uuid::new_v4(), op })
+                        .collect(),
+                };
+
+                Ok(Vec::from([Op::IfElse {
                     cond: BoolExpr {
                         uuid: Uuid::new_v4(),
                         kind: BoolExprKind::Not(Box::new(BoolExpr {
@@ -1162,7 +1401,117 @@ fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
                             ),
                         })),
                     },
-                    then: call_body,
+                    then: then_body,
+                    otherwise: else_body,
+                }]))
+            },
+            Command::Call { function, args: fn_args } => {
+                let Some(message) = message_name_to_message.get(function.as_ref()) else {
+                    println!("ERR: {:?}", function);
+                    return Err(());
+                };
+
+                let arg_ops = fn_args.into_iter().map(|arg| Op::ListPush {
+                    list: Arc::clone(&args),
+                    val: LitExpr {
+                        kind: LitExprKind::from_asm(&arg, &stack),
+                        uuid: Uuid::new_v4(),
+                    },
+                });
+
+                let mut link_ops = Vec::default();
+                if let Some(next_message) = &link.next_message {
+                    link_ops.push(Op::ListPush {
+                        list: Arc::clone(&stack),
+                        val: LitExpr {
+                            uuid: Uuid::new_v4(),
+                            kind: LitExprKind::Literal(Arc::clone(&next_message.name)),
+                        },
+                    });
+                }
+
+                let broadcast_ops = [Op::ListPush {
+                    list: Arc::clone(&stack),
+                    val: LitExpr {
+                        uuid: Uuid::new_v4(),
+                        kind: LitExprKind::Literal(Arc::clone(&message.name)),
+                    },
+                }];
+
+                let call_ops = arg_ops.chain(link_ops).chain(broadcast_ops).collect();
+
+                Ok(call_ops)
+            },
+            Command::CallIf { cond, function, args: fn_args } => {
+                let Some(message) = message_name_to_message.get(&function) else {
+                    println!("ERR: {:?}", function);
+                    return Err(());
+                };
+
+                let cond =
+                    LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::from_asm(&cond, &stack) };
+
+                let arg_ops = fn_args.into_iter().map(|arg| Op::ListPush {
+                    list: Arc::clone(&args),
+                    val: LitExpr {
+                        kind: LitExprKind::from_asm(&arg, &stack),
+                        uuid: Uuid::new_v4(),
+                    },
+                });
+
+                let mut then_link_ops = Vec::default();
+                let mut else_link_ops = Vec::default();
+                if let Some(next_message) = &link.next_message {
+                    then_link_ops.push(Op::ListPush {
+                        list: Arc::clone(&stack),
+                        val: LitExpr {
+                            uuid: Uuid::new_v4(),
+                            kind: LitExprKind::Literal(Arc::clone(&next_message.name)),
+                        },
+                    });
+                    else_link_ops.push(Op::ListPush {
+                        list: Arc::clone(&stack),
+                        val: LitExpr {
+                            uuid: Uuid::new_v4(),
+                            kind: LitExprKind::Literal(Arc::clone(&next_message.name)),
+                        },
+                    });
+                }
+
+                let broadcast_ops = [Op::ListPush {
+                    list: Arc::clone(&stack),
+                    val: LitExpr {
+                        uuid: Uuid::new_v4(),
+                        kind: LitExprKind::Literal(Arc::clone(&message.name)),
+                    },
+                }];
+
+                let then_ops = arg_ops.chain(then_link_ops).chain(broadcast_ops);
+                let then_blocks = then_ops.map(|op| Block { uuid: Uuid::new_v4(), op }).collect();
+                let then_body = Body { blocks: then_blocks };
+
+                let else_blocks = else_link_ops
+                    .into_iter()
+                    .map(|op| Block { uuid: Uuid::new_v4(), op })
+                    .collect();
+                let else_body = Body { blocks: else_blocks };
+
+                Ok(Vec::from([Op::IfElse {
+                    cond: BoolExpr {
+                        uuid: Uuid::new_v4(),
+                        kind: BoolExprKind::Not(Box::new(BoolExpr {
+                            uuid: Uuid::new_v4(),
+                            kind: BoolExprKind::Eq(
+                                Box::new(cond),
+                                Box::new(LitExpr {
+                                    uuid: Uuid::new_v4(),
+                                    kind: LitExprKind::Literal(Arc::new("0".into())),
+                                }),
+                            ),
+                        })),
+                    },
+                    then: then_body,
+                    otherwise: else_body,
                 }]))
             },
             Command::Mod { left, right, dest } => {
@@ -1388,24 +1737,58 @@ fn compile(defs: Vec<Def>) -> Result<Compiled, ()> {
                     },
                 }]))
             },
+            Command::Rand { min, max, dest } => {
+                let min =
+                    LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::from_asm(&min, &stack) };
+                let max =
+                    LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::from_asm(&max, &stack) };
+                let dest =
+                    LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::from_asm(&dest, &stack) };
+
+                Ok(Vec::from([Op::ListSet {
+                    list: Arc::clone(&stack),
+                    index: dest,
+                    val: LitExpr {
+                        uuid: Uuid::new_v4(),
+                        kind: LitExprKind::Rand(Box::new(min), Box::new(max)),
+                    },
+                }]))
+            },
         });
 
         let blocks = blocks.collect::<Result<Vec<_>, _>>()?;
         body.extend(blocks.into_iter().flatten().map(|op| Block { uuid: Uuid::new_v4(), op }));
 
         // var dealloc
-        for _var in &def.vars {
-            body.push(Block {
-                uuid: Uuid::new_v4(),
-                op: Op::ListRemove {
-                    list: Arc::clone(&stack),
-                    index: LitExpr {
-                        kind: LitExprKind::ListLen(Arc::clone(&stack)),
-                        uuid: Uuid::new_v4(),
+        if link.next_message.is_none() {
+            for _var in &link.header.vars {
+                body.push(Block {
+                    uuid: Uuid::new_v4(),
+                    op: Op::ListRemove {
+                        list: Arc::clone(&stack),
+                        index: LitExpr {
+                            kind: LitExprKind::ListLen(Arc::clone(&stack)),
+                            uuid: Uuid::new_v4(),
+                        },
                     },
-                },
-            });
+                });
+            }
         }
+
+        // goto next chunk
+        body.push(Block {
+            uuid: Uuid::new_v4(),
+            op: Op::BroadcastAsync(BroadcastInput::Expr(LitExpr {
+                uuid: Uuid::new_v4(),
+                kind: LitExprKind::ListIndex {
+                    list: Arc::clone(&stack),
+                    index: Box::new(LitExpr {
+                        uuid: Uuid::new_v4(),
+                        kind: LitExprKind::ListLen(Arc::clone(&stack)),
+                    }),
+                },
+            })),
+        });
 
         let body = Body { blocks: body };
 
@@ -1497,7 +1880,7 @@ fn export(compiled: Compiled) -> Result<String, ()> {
             "meta": {{
                 "semver": "3.0.0",
                 "vm": "2.3.4",
-                "agent": "ScratchASM/0.1.0"
+                "agent": "ScratchASM/0.2.0"
             }}
         }}
     "#,

@@ -1,0 +1,29 @@
+main $in $_cond
+
+;; get user input
+out "Enter T or F: "
+in $in
+
+;; branch based on if they entered T or F
+eq *$in "T" $_cond
+jmpf *$_cond #true
+eq *$in "F" $_cond
+jmpf *$_cond #false
+
+;; if neither
+out "Neither..."
+jmp #end
+
+;; if true
+tag #true
+out "True!"
+jmp #end
+
+;; if false
+tag #false
+out "False!"
+jmp #end
+
+;; end branching
+tag #end
+outl

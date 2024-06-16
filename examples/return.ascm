@@ -6,8 +6,8 @@ CALL @store_ten $num
 OUT *$num
 OUTL
 
-DEF @store_four $ret
+FN @store_four $ret
 COPY "4" *$ret
 
-DEF @store_ten $ret
+FN @store_ten $ret
 COPY "10" *$ret

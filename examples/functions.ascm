@@ -2,6 +2,6 @@ MAIN
 CALL @function
 OUT "World!"
 
-DEF @function $a
+FN @function $a
 COPY "Hello" $a
 OUT *$a

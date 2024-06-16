@@ -1,0 +1,23 @@
+main $a
+
+out "Start"
+outl
+
+jmp #first
+
+tag #second
+out "Second!"
+outl
+jmp #last
+
+tag #first
+out "First!"
+outl
+jmp #second
+
+tag #last
+out "Last!"
+outl
+
+out "End"
+outl

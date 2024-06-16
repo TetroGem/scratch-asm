@@ -1,0 +1,72 @@
+main $guess $target $input $min $max $_cond
+
+;; init game
+copy "0" $guess
+copy "???" $min
+copy "???" $max
+rand "0" "100" $target
+
+tag #game_loop
+
+;; inc guess
+add *$guess "1" $guess
+
+;; print gui
+clear
+call @print_gui *$guess *$min *$max
+
+;; await guess
+out "Enter a guess: "
+in $input
+out *$input
+outl
+
+;; check guess
+gt *$input *$target $_cond
+jmpf *$_cond #greater
+lt *$input *$target $_cond
+jmpf *$_cond #less
+
+;; is equal
+jmp #end_game
+
+;; if greater
+tag #greater
+eq *$max "???" $_cond
+jmpf *$_cond #set_max
+lt *$input *$max $_cond
+jmpf *$_cond #set_max
+jmp #game_loop
+
+tag #set_max
+copy *$input $max
+jmp #game_loop
+
+;; if less
+tag #less
+eq *$min "???" $_cond
+jmpf *$_cond #set_min
+gt *$input *$min $_cond
+jmpf *$_cond #set_min
+jmp #game_loop
+
+tag #set_min
+copy *$input $min
+jmp #game_loop
+
+;; end game
+tag #end_game
+out "Your guess was correct!"
+outl
+out "You win!"
+
+fn @print_gui $guess $min $max
+out "Guess #"
+out *$guess
+outl
+out "Greater than: "
+out *$min
+outl
+out "Less than: "
+out *$max
+outl
