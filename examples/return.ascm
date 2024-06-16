@@ -1,4 +1,4 @@
-MAIN $num
+DEF @main $num
 CALL @store_four $num
 OUT *$num
 OUTL

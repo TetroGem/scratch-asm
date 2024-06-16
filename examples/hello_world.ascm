@@ -1,4 +1,4 @@
-MAIN $a $b $c
+DEF @main $a $b $c
 OUT "Hello world!"
 OUTL
 COPY "Goodbye!" $a
