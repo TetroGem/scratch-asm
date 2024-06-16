@@ -1880,7 +1880,7 @@ fn export(compiled: Compiled) -> Result<String, ()> {
             "meta": {{
                 "semver": "3.0.0",
                 "vm": "2.3.4",
-                "agent": "ScratchASM/0.1.0"
+                "agent": "ScratchASM/0.2.0"
             }}
         }}
     "#,
