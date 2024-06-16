@@ -13,6 +13,7 @@ use zip_extensions::ZipWriterExtensions;
 
 #[derive(Debug)]
 enum Command {
+    Clear,
     Out(AsmVal),
     OutLine,
     In { dest: Arc<AsmVal> },
@@ -30,6 +31,7 @@ enum Command {
     Eq { left: Arc<AsmVal>, right: Arc<AsmVal>, dest: Arc<AsmVal> },
     Gt { left: Arc<AsmVal>, right: Arc<AsmVal>, dest: Arc<AsmVal> },
     Lt { left: Arc<AsmVal>, right: Arc<AsmVal>, dest: Arc<AsmVal> },
+    Rand { min: Arc<AsmVal>, max: Arc<AsmVal>, dest: Arc<AsmVal> },
 }
 
 #[derive(Debug)]
@@ -146,6 +148,7 @@ fn main() {
         let mut new_chunk = None;
 
         let command = match op.as_str() {
+            "clear" => Command::Clear,
             "out" => {
                 let msg = parse_asm_val(&mut parts, &scope.header.vars).expect("OUT needs message");
                 Command::Out(msg)
@@ -255,6 +258,12 @@ fn main() {
                 let right = parse_asm_val(&mut parts, &scope.header.vars).expect("DIV needs right");
                 let dest = parse_asm_val(&mut parts, &scope.header.vars).expect("DIV needs dest");
                 Command::Div { left: Arc::new(left), right: Arc::new(right), dest: Arc::new(dest) }
+            },
+            "rand" => {
+                let min = parse_asm_val(&mut parts, &scope.header.vars).expect("DIV needs left");
+                let max = parse_asm_val(&mut parts, &scope.header.vars).expect("DIV needs right");
+                let dest = parse_asm_val(&mut parts, &scope.header.vars).expect("DIV needs dest");
+                Command::Rand { min: Arc::new(min), max: Arc::new(max), dest: Arc::new(dest) }
             },
             op => panic!("unknown op: {}", op),
         };
@@ -424,6 +433,7 @@ enum LitExprKind {
     Mod(Box<LitExpr>, Box<LitExpr>),
     Answer,
     Join(Box<LitExpr>, Box<LitExpr>),
+    Rand(Box<LitExpr>, Box<LitExpr>),
 }
 
 impl LitExprKind {
@@ -775,6 +785,31 @@ impl LitExpr {
                 let mut deps = Vec::from([block.to_json()]);
                 deps.extend(left_data.deps);
                 deps.extend(right_data.deps);
+
+                ExprData { val: format!(r#"[3, "{}", [7, ""]]"#, self.uuid), deps }
+            },
+            LitExprKind::Rand(min, max) => {
+                let min_data = min.data(self.uuid);
+                let max_data = max.data(self.uuid);
+
+                let block = BlockJsonMaker {
+                    uuid: self.uuid,
+                    op_code: "operator_random",
+                    next: None,
+                    prev: Some(parent),
+                    inputs: format!(
+                        r#"
+                        "FROM": {},
+                        "TO": {}
+                    "#,
+                        min_data.val, max_data.val
+                    ),
+                    fields: String::new(),
+                };
+
+                let mut deps = Vec::from([block.to_json()]);
+                deps.extend(min_data.deps);
+                deps.extend(max_data.deps);
 
                 ExprData { val: format!(r#"[3, "{}", [7, ""]]"#, self.uuid), deps }
             },
@@ -1204,6 +1239,15 @@ fn compile(scopes: Vec<Scope>) -> Result<Compiled, ()> {
         }
 
         let blocks = link.chunk.body.into_iter().map(|command| match command {
+            Command::Clear => {
+                Ok(Vec::from([Op::ListClear { list: Arc::clone(&stdout) }, Op::ListPush {
+                    list: Arc::clone(&stdout),
+                    val: LitExpr {
+                        uuid: Uuid::new_v4(),
+                        kind: LitExprKind::Literal(Arc::new(String::new())),
+                    },
+                }]))
+            },
             Command::Out(msg) => Ok(Vec::from([Op::ListSet {
                 list: Arc::clone(&stdout),
                 index: LitExpr {
@@ -1247,7 +1291,20 @@ fn compile(scopes: Vec<Scope>) -> Result<Compiled, ()> {
                 index: LitExpr { kind: LitExprKind::from_asm(&addr, &stack), uuid: Uuid::new_v4() },
                 val: LitExpr { kind: LitExprKind::from_asm(&val, &stack), uuid: Uuid::new_v4() },
             }])),
-            Command::Tag => Ok(Vec::default()),
+            Command::Tag => {
+                let mut link_ops = Vec::default();
+                if let Some(next_message) = &link.next_message {
+                    link_ops.push(Op::ListPush {
+                        list: Arc::clone(&stack),
+                        val: LitExpr {
+                            uuid: Uuid::new_v4(),
+                            kind: LitExprKind::Literal(Arc::clone(&next_message.name)),
+                        },
+                    });
+                }
+
+                Ok(link_ops)
+            },
             Command::Jump { tag } => {
                 let Some(chunk_uuid) = link.scope_tag_to_chunk_uuid.get(tag.as_ref()) else {
                     println!("ERR: {:?}", tag);
@@ -1657,6 +1714,23 @@ fn compile(scopes: Vec<Scope>) -> Result<Compiled, ()> {
                     val: LitExpr {
                         uuid: Uuid::new_v4(),
                         kind: LitExprKind::Div(Box::new(left), Box::new(right)),
+                    },
+                }]))
+            },
+            Command::Rand { min, max, dest } => {
+                let min =
+                    LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::from_asm(&min, &stack) };
+                let max =
+                    LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::from_asm(&max, &stack) };
+                let dest =
+                    LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::from_asm(&dest, &stack) };
+
+                Ok(Vec::from([Op::ListSet {
+                    list: Arc::clone(&stack),
+                    index: dest,
+                    val: LitExpr {
+                        uuid: Uuid::new_v4(),
+                        kind: LitExprKind::Rand(Box::new(min), Box::new(max)),
                     },
                 }]))
             },
