@@ -17,7 +17,9 @@ enum Command {
     OutL,
     In { dest: Arc<AsmVal> },
     Copy { val: Arc<AsmVal>, dest: Arc<AsmVal> },
-    Call { function: String, args: Vec<Arc<AsmVal>> },
+    Tag,
+    Jmp { tag: Arc<String> },
+    Call { function: Arc<String>, args: Vec<Arc<AsmVal>> },
     CallIf { cond: Arc<AsmVal>, function: String, args: Vec<Arc<AsmVal>> },
     Add { left: Arc<AsmVal>, right: Arc<AsmVal>, dest: Arc<AsmVal> },
     Sub { left: Arc<AsmVal>, right: Arc<AsmVal>, dest: Arc<AsmVal> },
@@ -51,6 +53,7 @@ enum ScopeKind {
 struct Scope {
     header: Arc<ScopeHeader>,
     chunks: Vec<Chunk>,
+    tag_to_chunk_uuid: HashMap<Arc<String>, Uuid>,
 }
 
 #[derive(Debug)]
@@ -126,6 +129,7 @@ fn main() {
             scope = Some(Scope {
                 header: Arc::new(ScopeHeader { kind: scope_kind, vars }),
                 chunks: Vec::from([Chunk { uuid: Uuid::new_v4(), body: Vec::default() }]),
+                tag_to_chunk_uuid: HashMap::default(),
             });
             continue;
         }
@@ -133,7 +137,12 @@ fn main() {
         let Some(scope) = &mut scope else { panic!("commands are not in a scope") };
 
         let mut parts = parts.collect();
-        let mut new_chunk = false;
+
+        struct NewChunk {
+            tag: Option<Arc<String>>,
+        }
+
+        let mut new_chunk = None;
 
         let command = match op.as_str() {
             "out" => {
@@ -150,6 +159,15 @@ fn main() {
                 let dest = parse_asm_val(&mut parts, &scope.header.vars).expect("COPY needs addr");
                 Command::Copy { val: Arc::new(val), dest: Arc::new(dest) }
             },
+            "tag" => {
+                let name = parse_tag_name(&mut parts).expect("TAG needs name");
+                new_chunk = Some(NewChunk { tag: Some(Arc::new(name.to_string())) });
+                Command::Tag
+            },
+            "jmp" => {
+                let tag = parse_tag_name(&mut parts).expect("JMP needs tag");
+                Command::Jmp { tag: Arc::new(tag.into()) }
+            },
             "call" => {
                 let function = parse_function_name(&mut parts).expect("CALL needs function");
                 let mut args = Vec::default();
@@ -159,9 +177,9 @@ fn main() {
                     args.push(Arc::new(val));
                 }
 
-                new_chunk = true;
+                new_chunk = Some(NewChunk { tag: None });
 
-                Command::Call { function: function.into(), args }
+                Command::Call { function: Arc::new(function.into()), args }
             },
             "callf" => {
                 let cond =
@@ -174,7 +192,7 @@ fn main() {
                     args.push(Arc::new(val));
                 }
 
-                new_chunk = true;
+                new_chunk = Some(NewChunk { tag: None });
 
                 Command::CallIf { cond: Arc::new(cond), function: function.into(), args }
             },
@@ -232,8 +250,12 @@ fn main() {
         let chunk = scope.chunks.last_mut().expect("scope should have a chunk");
         chunk.body.push(command);
 
-        if new_chunk {
-            scope.chunks.push(Chunk { uuid: Uuid::new_v4(), body: Vec::default() });
+        if let Some(new_chunk) = new_chunk {
+            let chunk = Chunk { uuid: Uuid::new_v4(), body: Vec::default() };
+            if let Some(tag) = new_chunk.tag {
+                scope.tag_to_chunk_uuid.insert(tag, chunk.uuid);
+            }
+            scope.chunks.push(chunk);
         }
     }
 
@@ -359,6 +381,14 @@ fn parse_stack_deref(parts: &mut VecDeque<&str>, vars: &[Var]) -> Result<Box<Asm
 fn parse_function_name<'a>(parts: &mut VecDeque<&'a str>) -> Result<&'a str, ()> {
     let Some(name) = parts.pop_front() else { return Err(()) };
     if !name.starts_with('@') {
+        return Err(());
+    }
+    Ok(name)
+}
+
+fn parse_tag_name<'a>(parts: &mut VecDeque<&'a str>) -> Result<&'a str, ()> {
+    let Some(name) = parts.pop_front() else { return Err(()) };
+    if !name.starts_with('#') {
         return Err(());
     }
     Ok(name)
@@ -1034,6 +1064,7 @@ fn compile(scopes: Vec<Scope>) -> Result<Compiled, ()> {
 
     struct LinkedChunk {
         header: Arc<ScopeHeader>,
+        scope_tag_to_chunk_uuid: Arc<HashMap<Arc<String>, Uuid>>,
         chunk: Chunk,
         message: Arc<Message>,
         next_message: Option<Arc<Message>>,
@@ -1042,27 +1073,32 @@ fn compile(scopes: Vec<Scope>) -> Result<Compiled, ()> {
 
     let mut linked_chunks = Vec::default();
 
+    fn create_message_name(kind: &ScopeKind, chunk_uuid: Uuid, first_in_scope: bool) -> String {
+        let scope_name = match kind {
+            ScopeKind::Main => "::main",
+            ScopeKind::Fn { name } => name.as_str(),
+        };
+
+        match first_in_scope {
+            true => scope_name.into(),
+            false => format!("{}@{}", scope_name, chunk_uuid),
+        }
+    }
+
     // create messages for chunks
     for scope in scopes {
+        let scope_tag_to_chunk_uuid = Arc::new(scope.tag_to_chunk_uuid);
         let mut next_message = None;
         for (i, chunk) in scope.chunks.into_iter().enumerate().rev() {
             let first_in_scope = i == 0;
 
-            let scope_name = match &scope.header.kind {
-                ScopeKind::Main => "::main",
-                ScopeKind::Fn { name } => name.as_str(),
-            };
-
-            let message_name = match first_in_scope {
-                true => scope_name.into(),
-                false => format!("{}@{}", scope_name, chunk.uuid),
-            };
-
+            let message_name = create_message_name(&scope.header.kind, chunk.uuid, first_in_scope);
             let message = Arc::new(Message { uuid: Uuid::new_v4(), name: Arc::new(message_name) });
             message_name_to_message.insert(message.name.as_ref().clone(), Arc::clone(&message));
 
             linked_chunks.push(LinkedChunk {
                 header: Arc::clone(&scope.header),
+                scope_tag_to_chunk_uuid: Arc::clone(&scope_tag_to_chunk_uuid),
                 chunk,
                 message: Arc::clone(&message),
                 next_message: next_message.take(),
@@ -1199,8 +1235,28 @@ fn compile(scopes: Vec<Scope>) -> Result<Compiled, ()> {
                 index: LitExpr { kind: LitExprKind::from_asm(&addr, &stack), uuid: Uuid::new_v4() },
                 val: LitExpr { kind: LitExprKind::from_asm(&val, &stack), uuid: Uuid::new_v4() },
             }])),
+            Command::Tag => Ok(Vec::default()),
+            Command::Jmp { tag } => {
+                let Some(chunk_uuid) = link.scope_tag_to_chunk_uuid.get(tag.as_ref()) else {
+                    println!("ERR: {:?}", tag);
+                    return Err(());
+                };
+
+                let message_name = create_message_name(&link.header.kind, *chunk_uuid, false);
+                let broadcast_ops = [Op::ListPush {
+                    list: Arc::clone(&stack),
+                    val: LitExpr {
+                        uuid: Uuid::new_v4(),
+                        kind: LitExprKind::Literal(Arc::new(message_name)),
+                    },
+                }];
+
+                let call_ops = broadcast_ops.into_iter().collect();
+
+                Ok(call_ops)
+            },
             Command::Call { function, args: fn_args } => {
-                let Some(message) = message_name_to_message.get(&function) else {
+                let Some(message) = message_name_to_message.get(function.as_ref()) else {
                     println!("ERR: {:?}", function);
                     return Err(());
                 };
