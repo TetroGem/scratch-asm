@@ -17,7 +17,7 @@ CALL @fizzbuzz "1" *$iters ; call fizzbuzz loop starting at 1 for $iters iterati
 ;;;;;
 ;;; $_cond: bool = is this number over the max iters? guard condition for looping
 ;;;;;
-DEF @fizzbuzz $num $iters $_cond
+FN @fizzbuzz $num $iters $_cond
 ;; check if over max number of iters
 COPY *$iters $_cond ; copy iters value into $_cond
 ADD *$_cond "1" $_cond ; add 1 to number of iters (first num over max)
@@ -35,7 +35,7 @@ CALLF *$_cond @fizzbuzz *$num *$iters ; if condition was met for printing, conti
 ;;; $_buzz: bool = is this num buzz?
 ;;; $_none: bool = is this num neither?
 ;;;;;
-DEF @print_fizzbuzz $num $_fizz $_buzz $_none
+FN @print_fizzbuzz $num $_fizz $_buzz $_none
 
 ; check if num % 3 == 0 (fizz)
 MOD *$num "3" $_fizz
@@ -58,5 +58,5 @@ OUTL ; end line for number
 ;;; @print = prints the given value (for use with conditionals)
 ;;; $val = the value to print
 ;;;;;
-DEF @print $val
+FN @print $val
 OUT *$val

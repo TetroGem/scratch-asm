@@ -1,4 +1,4 @@
-def @main $w $h
+main $w $h
 out "Enter the width of the rectangle to print: "
 in $w
 out *$w
@@ -10,18 +10,18 @@ outl
 
 call @print_rectangle *$w *$h
 
-def @print_rectangle $w $h $_can_draw
+fn @print_rectangle $w $h $_can_draw
 gt *$h "0" $_can_draw
 callf *$_can_draw @print_rect_row *$w
 outl
 sub *$h "1" $h
 callf *$_can_draw @print_rectangle *$w *$h
 
-def @print_rect_row $w $_can_draw $_break
+fn @print_rect_row $w $_can_draw $_break
 gt *$w "0" $_can_draw
 callf *$_can_draw @print_rect_cell
 sub *$w "1" $w
 callf *$_can_draw @print_rect_row *$w
 
-def @print_rect_cell
+fn @print_rect_cell
 out "*"

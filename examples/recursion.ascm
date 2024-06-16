@@ -1,17 +1,20 @@
-def @main
+main
 out "Hello world!"
 outl
 call @recurse "3"
 out "Goodbye!"
 outl
 
-def @recurse $i $_cond
-out "IN"
+fn @recurse $i $_next $_cond
+out "IN "
+out *$i
 outl
 
-sub *$i "1" $i
-gt *$i "0" $_cond
-callf *$_cond @recurse *$i
+copy *$i $_next
+sub *$_next "1" $_next
+gt *$_next "0" $_cond
+callf *$_cond @recurse *$_next
 
-out "OUT"
+out "OUT "
+out *$i
 outl

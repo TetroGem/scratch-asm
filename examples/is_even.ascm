@@ -11,12 +11,12 @@ CALLF *$num_is_even @print_even
 SUB "1" *$num_is_even $num_is_even
 CALLF *$num_is_even @print_odd
 
-DEF @print_even
+FN @print_even
 OUT "even!"
 
-DEF @print_odd
+FN @print_odd
 OUT "odd!"
 
-DEF @is_even $num $ret
+FN @is_even $num $ret
 MOD *$num "2" *$ret
 EQ **$ret "0" *$ret

@@ -37,8 +37,14 @@ struct Var {
 
 #[derive(Debug)]
 struct ScopeHeader {
-    name: String,
+    kind: ScopeKind,
     vars: Vec<Var>,
+}
+
+#[derive(Debug)]
+enum ScopeKind {
+    Main,
+    Fn { name: String },
 }
 
 #[derive(Debug)]
@@ -76,7 +82,7 @@ fn main() {
 
     println!("{}", input);
 
-    let mut defs: Vec<Scope> = Vec::default();
+    let mut scopes: Vec<Scope> = Vec::default();
     let mut scope = None;
 
     for line in input.lines() {
@@ -94,18 +100,19 @@ fn main() {
         let mut parts = command.split_whitespace();
 
         let op = parts.next().expect("first part should be op").to_lowercase();
-        let scope_name = match op.as_str() {
-            "def" => {
+        let scope_kind = match op.as_str() {
+            "main" => Some(ScopeKind::Main),
+            "fn" => {
                 let name = parts.next().expect("scope must have name");
                 assert!(name.starts_with('@'), "scope names must start with @");
-                Some(name.into())
+                Some(ScopeKind::Fn { name: name.into() })
             },
             _ => None,
         };
 
-        if let Some(scope_name) = scope_name {
-            if let Some(last_def) = scope.take() {
-                defs.push(last_def);
+        if let Some(scope_kind) = scope_kind {
+            if let Some(last_scope) = scope.take() {
+                scopes.push(last_scope);
             }
 
             let vars = parts
@@ -117,7 +124,7 @@ fn main() {
                 .collect_vec();
 
             scope = Some(Scope {
-                header: Arc::new(ScopeHeader { name: scope_name, vars }),
+                header: Arc::new(ScopeHeader { kind: scope_kind, vars }),
                 chunks: Vec::from([Chunk { uuid: Uuid::new_v4(), body: Vec::default() }]),
             });
             continue;
@@ -231,12 +238,12 @@ fn main() {
     }
 
     if let Some(def) = scope {
-        defs.push(def);
+        scopes.push(def);
     }
 
-    println!("{:?}", defs);
+    println!("{:?}", scopes);
 
-    let compiled = compile(defs).expect("compilation should succeed");
+    let compiled = compile(scopes).expect("compilation should succeed");
 
     println!("{:?}", compiled);
 
@@ -1041,9 +1048,14 @@ fn compile(scopes: Vec<Scope>) -> Result<Compiled, ()> {
         for (i, chunk) in scope.chunks.into_iter().enumerate().rev() {
             let first_in_scope = i == 0;
 
+            let scope_name = match &scope.header.kind {
+                ScopeKind::Main => "::main",
+                ScopeKind::Fn { name } => name.as_str(),
+            };
+
             let message_name = match first_in_scope {
-                true => scope.header.name.to_string(),
-                false => format!("{}@{}", scope.header.name, chunk.uuid),
+                true => scope_name.into(),
+                false => format!("{}@{}", scope_name, chunk.uuid),
             };
 
             let message = Arc::new(Message { uuid: Uuid::new_v4(), name: Arc::new(message_name) });
@@ -1062,42 +1074,43 @@ fn compile(scopes: Vec<Scope>) -> Result<Compiled, ()> {
     }
 
     let chains = linked_chunks.into_iter().map(|link| {
-        let root_op = if link.message.name.as_str() == "@main" {
-            Op::OnFlag
-        } else {
-            Op::OnMessage(Arc::clone(&link.message))
+        let root_op = match link.header.kind {
+            ScopeKind::Main if link.first_in_scope => Op::OnFlag,
+            _ => Op::OnMessage(Arc::clone(&link.message)),
         };
 
         let head = Root { block: Block { op: root_op, uuid: Uuid::new_v4() }, x: 0., y: 0. };
 
         let mut body = Vec::default();
 
-        if link.header.name == "@main" && link.first_in_scope {
-            body.push(Block {
-                uuid: Uuid::new_v4(),
-                op: Op::ListClear { list: Arc::clone(&stdout) },
-            });
+        if let ScopeKind::Main = link.header.kind {
+            if link.first_in_scope {
+                body.push(Block {
+                    uuid: Uuid::new_v4(),
+                    op: Op::ListClear { list: Arc::clone(&stdout) },
+                });
 
-            body.push(Block {
-                uuid: Uuid::new_v4(),
-                op: Op::ListClear { list: Arc::clone(&stack) },
-            });
+                body.push(Block {
+                    uuid: Uuid::new_v4(),
+                    op: Op::ListClear { list: Arc::clone(&stack) },
+                });
 
-            body.push(Block {
-                uuid: Uuid::new_v4(),
-                op: Op::ListClear { list: Arc::clone(&args) },
-            });
+                body.push(Block {
+                    uuid: Uuid::new_v4(),
+                    op: Op::ListClear { list: Arc::clone(&args) },
+                });
 
-            body.push(Block {
-                uuid: Uuid::new_v4(),
-                op: Op::ListPush {
-                    list: Arc::clone(&stdout),
-                    val: LitExpr {
-                        uuid: Uuid::new_v4(),
-                        kind: LitExprKind::Literal(Arc::new(String::new())),
+                body.push(Block {
+                    uuid: Uuid::new_v4(),
+                    op: Op::ListPush {
+                        list: Arc::clone(&stdout),
+                        val: LitExpr {
+                            uuid: Uuid::new_v4(),
+                            kind: LitExprKind::Literal(Arc::new(String::new())),
+                        },
                     },
-                },
-            });
+                });
+            }
         }
 
         // remove goto instruction from stack
