@@ -536,5 +536,23 @@ pub fn command_kind_to_ops(
                 },
             }]))
         },
+        Command::Time { dest } => {
+            let dest =
+                LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::from_ap(&dest, &stack, vars)? };
+
+            Ok(Vec::from([Op::ListSet {
+                list: Arc::clone(&stack),
+                index: dest,
+                val: LitExpr { uuid: Uuid::new_v4(), kind: LitExprKind::Timer },
+            }]))
+        },
+        Command::Wait { seconds } => {
+            let seconds = LitExpr {
+                uuid: Uuid::new_v4(),
+                kind: LitExprKind::from_ap(&seconds, &stack, vars)?,
+            };
+
+            Ok(Vec::from([Op::Wait { seconds }]))
+        },
     }
 }

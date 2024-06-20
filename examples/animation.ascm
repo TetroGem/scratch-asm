@@ -1,0 +1,48 @@
+main $ball_x $_ball_i $_ball_cond
+
+;; init program
+
+copy "0" $ball_x
+
+;; run loop
+
+tag #loop
+
+    clear
+
+    copy "0" $_ball_i
+    tag #for_ball
+
+        gt *$_ball_i "10" $_ball_cond
+        jmpf *$_ball_cond #for_ball_end
+
+        eq *$ball_x *$_ball_i $_ball_cond
+        jmpf *$_ball_cond #draw_ball
+
+        ;; draw blank
+        out "░"
+        jmp #after_draw_ball
+
+        ;; draw ball
+        tag #draw_ball
+        out "█"
+
+        tag #after_draw_ball
+        add *$_ball_i "1" $_ball_i
+        jmp #for_ball
+
+    tag #for_ball_end
+
+    ;; move ball
+    add *$ball_x "1" $ball_x
+
+    gt *$ball_x "10" $_ball_cond
+    sub "1" *$_ball_cond $_ball_cond
+    jmpf *$_ball_cond #reset_ball_end
+
+    copy "0" $ball_x
+    tag #reset_ball_end
+
+    wait "0.075"
+
+jmp #loop

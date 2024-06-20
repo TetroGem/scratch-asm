@@ -32,6 +32,8 @@ pub fn parse(input: String) -> anyhow::Result<Parsed> {
             .map(|(tokens, comment)| (tokens, Some(comment)))
             .unwrap_or((line, None));
 
+        let tokens = tokens.trim();
+
         if tokens.is_empty() {
             continue;
         }

@@ -73,6 +73,7 @@ pub enum LitExprKind {
     Answer,
     Join(Box<LitExpr>, Box<LitExpr>),
     Rand(Box<LitExpr>, Box<LitExpr>),
+    Timer,
 }
 
 fn get_stack_offset(var: &Arc<String>, defined: &[Var]) -> anyhow::Result<usize> {
@@ -476,6 +477,21 @@ impl LitExpr {
 
                 ExprData { val: format!(r#"[3, "{}", [7, ""]]"#, self.uuid), deps }
             },
+            LitExprKind::Timer => {
+                let block = BlockJsonMaker {
+                    uuid: self.uuid,
+                    op_code: "sensing_timer",
+                    next: None,
+                    prev: Some(parent),
+                    inputs: String::new(),
+                    fields: String::new(),
+                };
+
+                ExprData {
+                    val: format!(r#"[3, "{}", [7, ""]]"#, self.uuid),
+                    deps: Vec::from([block.to_json()]),
+                }
+            },
         }
     }
 }
@@ -505,6 +521,7 @@ pub enum Op {
     If { cond: BoolExpr, then: Body },
     IfElse { cond: BoolExpr, then: Body, otherwise: Body },
     Ask,
+    Wait { seconds: LitExpr },
 }
 
 #[derive(Debug)]
@@ -668,6 +685,19 @@ impl Block {
                 inputs: r#""QUESTION": [1, [10, ""]]"#.into(),
                 fields: String::new(),
                 deps: Vec::default(),
+            },
+            Op::Wait { seconds } => {
+                let seconds_data = seconds.data(self.uuid);
+
+                let mut deps = Vec::default();
+                deps.extend(seconds_data.deps);
+
+                BlockData {
+                    op_code: "control_wait",
+                    inputs: format!(r#""DURATION": {}"#, seconds_data.val),
+                    fields: String::new(),
+                    deps,
+                }
             },
         };
 

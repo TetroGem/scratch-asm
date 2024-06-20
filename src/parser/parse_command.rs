@@ -100,6 +100,8 @@ impl ParseCommand for CommandDiscriminants {
             Self::Rand => {
                 link(Command::Rand { min: t.next_val()?, max: t.next_val()?, dest: t.next_val()? })
             },
+            Self::Time => link(Command::Time { dest: t.next_val()? }),
+            Self::Wait => link(Command::Wait { seconds: t.next_val()? }),
         };
 
         Ok(res)

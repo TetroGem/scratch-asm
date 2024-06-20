@@ -32,6 +32,8 @@ pub enum Command {
     Gt { left: ApVal, right: ApVal, dest: ApVal },
     Lt { left: ApVal, right: ApVal, dest: ApVal },
     Rand { min: ApVal, max: ApVal, dest: ApVal },
+    Time { dest: ApVal },
+    Wait { seconds: ApVal },
 }
 
 impl CommandDiscriminants {
@@ -56,6 +58,8 @@ impl CommandDiscriminants {
             Self::Mul => "mul",
             Self::Div => "div",
             Self::Rand => "rand",
+            Self::Time => "time",
+            Self::Wait => "wait",
         }
     }
 

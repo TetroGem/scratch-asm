@@ -1,0 +1,246 @@
+;;;;; PONG
+
+;; board is 13x9
+
+main $tx $ts $bx $bs $ox $oy $ovx $ovy $cond
+;; top x, top score, bottom x, bottom score, ball x, ball y, ball vx, ball vy, cond
+
+;; init
+copy "7" $tx
+copy "0" $ts
+
+copy "7" $bx
+copy "0" $bs
+
+copy "7" $ox
+copy "4" $oy
+copy "1" $ovx
+copy "1" $ovy
+
+tag #game_loop
+
+;; update y velocity
+gt *$oy "6" $cond
+jmpf *$cond #bounce_up
+jmp #bounce_up_end
+
+tag #bounce_up
+    call @hit_paddle *$bx *$ox $cond
+    sub "1" *$cond $cond
+    jmpf *$cond #bottom_missed
+
+    ;; if hit paddle
+    copy "-1" $ovy
+    jmp #bounce_up_end
+
+    ;; if missed paddle
+    tag #bottom_missed
+        add *$ts "1" $ts
+        jmp #reset_ball
+tag #bounce_up_end
+
+lt *$oy "2" $cond
+jmpf *$cond #bounce_down
+jmp #bounce_down_end
+
+tag #bounce_down
+    call @hit_paddle *$tx *$ox $cond
+    sub "1" *$cond $cond
+    jmpf *$cond #top_missed
+
+    ;; if hit paddle
+    copy "1" $ovy
+    jmp #bounce_down_end
+
+    ;; if missed paddle
+    tag #top_missed
+        add *$bs "1" $bs
+        jmp #reset_ball
+tag #bounce_down_end
+
+;; update x velocity
+gt *$ox "12" $cond
+jmpf *$cond #bounce_left
+jmp #bounce_left_end
+
+tag #bounce_left
+copy "-1" $ovx
+tag #bounce_left_end
+
+lt *$ox "2" $cond
+jmpf *$cond #bounce_right
+jmp #bounce_right_end
+
+tag #bounce_right
+copy "1" $ovx
+tag #bounce_right_end
+
+;; update ball pos
+add *$ox *$ovx $ox
+add *$oy *$ovy $oy
+jmp #reset_ball_end
+
+tag #reset_ball
+copy "7" $ox
+copy "4" $oy
+tag #reset_ball_end
+
+;; paddles ai
+call @paddle_ai $tx *$ox
+call @paddle_ai $bx *$ox
+
+tag #top_move_right_end
+
+;; draw
+clear
+call @draw_sprite *$tx "1"
+call @draw_field *$ox *$oy
+call @draw_sprite *$bx "1"
+
+;; gui
+out *$ts
+out " - "
+out *$bs
+outl
+
+; wait "0.2"
+wait "0.016"
+jmp #game_loop
+
+
+
+fn @paddle_ai $px $ox $_c ; *paddle x, ball x, cond
+
+rand "1" "10" $_c
+eq *$_c "1" $_c
+jmpf *$_c #skip
+
+gt **$px *$ox $_c
+sub "1" *$_c $_c
+jmpf *$_c #left_end
+
+sub **$px "1" *$px
+tag #left_end
+
+lt **$px *$ox $_c
+sub "1" *$_c $_c
+jmpf *$_c #right_end
+
+add **$px "1" *$px
+tag #right_end
+
+lt **$px "2" $_c
+sub "1" *$_c $_c
+jmpf *$_c #clamp_left_end
+
+copy "2" *$px
+tag #clamp_left_end
+
+gt **$px "12" $_c
+sub "1" *$_c $_c
+jmpf *$_c #clamp_right_end
+
+copy "12" *$px
+tag #clamp_right_end
+
+tag #skip
+
+
+
+fn @hit_paddle $px $ox $dest $_c1 $_c2 ; paddle x, ball x, *return dest
+
+;; ball past left edge of paddle?
+sub *$px "2" $_c1
+gt *$ox *$_c1 $_c1
+
+;; ball before left edge of paddle?
+add *$px "2" $_c2
+lt *$ox *$_c2 $_c2
+
+;; return both were true?
+add *$_c1 *$_c2 *$dest
+eq **$dest "2" *$dest
+
+
+fn @draw_field $ox $oy $_i $_c ; ball x, ball y, loop var, cond
+
+;; init
+copy "1" $_i
+
+tag #loop
+    gt *$_i "7" $_c
+    jmpf *$_c #loop_end
+
+    ;; check if row is the one the ball is on
+    eq *$oy *$_i $_c
+    jmpf *$_c #draw_ball
+
+    ;; draw empty line
+    call @draw_blank
+    jmp #draw_line_end
+
+    ;; draw ball
+    tag #draw_ball
+    call @draw_sprite *$ox "0"
+    jmp #draw_line_end
+
+    tag #draw_line_end
+
+    ;; next iter
+    add *$_i "1" $_i
+    jmp #loop
+tag #loop_end
+
+
+
+fn @draw_sprite $x $l $_i $_c $_s ; sprite x, sprite len from center, loop i, cond, cur span len
+
+;; init
+copy "0" $_i
+
+;; left padding
+sub *$x *$l $_s
+sub *$_s "1" $_s
+call @draw_span *$_s "0"
+
+;; sprite center
+copy *$l $_s
+mul *$_s "2" $_s
+add *$_s "1" $_s
+call @draw_span *$_s "1"
+
+;; right padding
+sub "13" *$x $_s
+sub *$_s *$l $_s
+call @draw_span *$_s "0"
+
+;; finish line
+outl
+
+
+
+fn @draw_blank
+call @draw_span "13" "0"
+outl
+
+
+
+fn @draw_span $s $o $_c; span len, filled?, cond
+tag #loop
+
+;; continue?
+gt *$s "0" $_c
+sub "1" *$_c $_c
+jmpf *$_c #loop_end
+sub *$s "1" $s
+
+;; color in char
+jmpf *$o #filled
+out "░" ; not filled
+jmp #loop
+
+tag #filled
+out "█" ; filled
+jmp #loop
+
+tag #loop_end
