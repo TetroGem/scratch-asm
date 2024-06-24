@@ -37,6 +37,8 @@ The following commands are currently available:
 - `GT [l] [r] [dest]` = performs `l > r` and stores the result into address `[dest]`
 - `LT [l] [r] [dest]` = performs `l < r` and stores the result into address `[dest]`
 - `RAND [min] [max] [dest]` = generates a random number between `[min]` and `[max]` (inclusive), and store the result into address `[dest]`
+- `TIME [dest]` = stores the number of seconds elapsed since the program began into address `[dest]`
+- `WAIT [seconds]` = pauses program execution/sleeps for `[seconds]` seconds
 ## Values
 In ScratchASM:
 - String and Numbers are the same type, and are written in code with string syntax (e.g., `"1"`, `"Hello!"`)

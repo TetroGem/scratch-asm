@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use anyhow::bail;
 
+use crate::util::SplitAtChecked;
+
 #[derive(Debug)]
 pub enum AsmVal {
     Literal(Arc<String>),
@@ -117,7 +119,7 @@ fn parse_stack_deref<'a>(
     part: &'a str,
     rest: &mut VecDeque<&'a str>,
 ) -> anyhow::Result<Box<AsmVal>> {
-    let Some(("*", val)) = part.split_at_checked(1) else {
+    let Some(("*", val)) = SplitAtChecked::split_at_checked(part, 1) else {
         bail!("Dereference should consist of * with a value after");
     };
 

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use extend::ext;
 use symspell::{AsciiStringStrategy, SymSpellBuilder, Verbosity};
 
 pub fn spellcheck<'a>(
@@ -39,5 +40,15 @@ impl<T> PushGet for Vec<T> {
 
         // SAFETY: we just pushed so there should be a last element
         self.last_mut().unwrap()
+    }
+}
+
+#[ext(pub, name = SplitAtChecked)]
+impl str {
+    fn split_at_checked(&self, index: usize) -> Option<(&str, &str)> {
+        match index > self.len() {
+            true => None,
+            false => Some(self.split_at(index)),
+        }
     }
 }
